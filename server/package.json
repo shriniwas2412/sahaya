@@ -1,0 +1,22 @@
+{
+  "name": "sahaya-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "db:migrate:local": "wrangler d1 migrations apply sahaya --local"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "dependencies": {
+    "hono": "4.13.13"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "24.19.2"
+  }
+}
