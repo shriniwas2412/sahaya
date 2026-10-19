@@ -1,0 +1,15 @@
+{
+  "name": "Sahaya",
+  "short_name": "Sahaya",
+  "description": "A gentle companion for an elder, with reminders and an emergency help button.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f3ec",
+  "theme_color": "#1d5c4d",
+  "lang": "hi",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
