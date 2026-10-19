@@ -1,0 +1,22 @@
+# Cloudflare Worker for Sahaya. Not deployed from this repo by default.
+# Replace the placeholder database_id after `wrangler d1 create sahaya`.
+name = "sahaya-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sahaya"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# One cron trigger: medicine reminders and missed-dose escalation every 5 minutes.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+TZ_OFFSET_MIN = "330"
+# APP_ORIGIN = "https://your-app.example"
+
+# Secrets (set with `wrangler secret put NAME`, never committed):
+#   JWT_SECRET, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT

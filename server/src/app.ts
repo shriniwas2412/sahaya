@@ -1,0 +1,153 @@
+// HTTP API (Hono). Mounted under /api.
+//   POST /auth/register  {name, email, password}      -> sets cookie
+//   POST /auth/login     {email, password}            -> sets cookie
+//   POST /auth/logout
+//   GET  /auth/me
+//   POST /sync           {since, rows: [{table,row}]}  -> {rows, cursor, more, rejected}
+//   GET  /push/key       -> VAPID public key (or null)
+//   POST /push/subscribe <PushSubscription JSON>
+//   POST /notify         {elder_id, text}              -> push to the caregiver's devices
+
+import { Hono, type Context } from "hono";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import type { Env } from "./env.ts";
+import { hashPassword, verifyPassword, validPassword } from "./lib/password.ts";
+import { signJwt, verifyJwt, type Claims } from "./lib/jwt.ts";
+import { pushChanges, pullChanges } from "./sync.ts";
+import { sendPush, type PushSubscriptionJson } from "./lib/webpush.ts";
+import { ulid } from "../../web/src/core/ids.ts";
+
+type Vars = { user: Claims };
+type C = Context<{ Bindings: Env; Variables: Vars }>;
+
+export const COOKIE = "sahaya_session";
+const SESSION_DAYS = 30;
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
+
+export function createApp() {
+  const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath("/api");
+
+  // CORS for the configured web origin only, and an Origin check on writes (CSRF).
+  app.use("*", async (c, next) => {
+    const origin = c.req.header("origin");
+    const allowed = c.env.APP_ORIGIN;
+    if (c.req.method !== "GET" && origin && allowed && origin !== allowed) return c.json({ error: "origin" }, 403);
+    if (c.req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders(allowed, origin) });
+    }
+    await next();
+    for (const [k, v] of Object.entries(corsHeaders(allowed, origin))) c.res.headers.set(k, v);
+  });
+
+  const session = async (c: C, user: { id: string; role: string }) => {
+    const token = await signJwt({ sub: user.id, role: user.role, exp: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400 }, c.env.JWT_SECRET);
+    setCookie(c, COOKIE, token, {
+      httpOnly: true, secure: c.env.INSECURE_COOKIE !== "1", sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400,
+    });
+  };
+
+  app.post("/auth/register", async (c) => {
+    const b = await c.req.json<{ name?: string; email?: string; password?: string }>().catch(() => ({} as Record<string, string>));
+    const name = String(b.name ?? "").trim().slice(0, 120);
+    const email = String(b.email ?? "").trim().toLowerCase();
+    if (!name || !EMAIL.test(email) || !validPassword(b.password)) return c.json({ error: "invalid" }, 400);
+    const exists = await c.env.DB.prepare("SELECT id FROM app_user WHERE email = ?").bind(email).first();
+    if (exists) return c.json({ error: "exists" }, 409);
+    const id = ulid();
+    const now = new Date().toISOString();
+    // Self sign-up is always a caregiver; admin and field_worker roles are set by an admin.
+    await c.env.DB.prepare("INSERT INTO app_user (id, hlc, role, name, email, password_hash, created_at) VALUES (?, ?, 'caregiver', ?, ?, ?, ?)")
+      .bind(id, now, name, email, await hashPassword(b.password!), now).run();
+    await session(c, { id, role: "caregiver" });
+    return c.json({ id, name, email, role: "caregiver" }, 201);
+  });
+
+  app.post("/auth/login", async (c) => {
+    const b = await c.req.json<{ email?: string; password?: string }>().catch(() => ({} as Record<string, string>));
+    const email = String(b.email ?? "").trim().toLowerCase();
+    const u = await c.env.DB.prepare("SELECT id, name, email, role, password_hash FROM app_user WHERE email = ? AND deleted = 0")
+      .bind(email).first<{ id: string; name: string; email: string; role: string; password_hash: string }>();
+    // Same work and the same answer whether or not the email exists.
+    const ok = await verifyPassword(String(b.password ?? ""), u?.password_hash ?? "pbkdf2_sha256$100000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    if (!u || !ok) return c.json({ error: "credentials" }, 401);
+    await session(c, u);
+    return c.json({ id: u.id, name: u.name, email: u.email, role: u.role });
+  });
+
+  app.post("/auth/logout", (c) => {
+    deleteCookie(c, COOKIE, { path: "/" });
+    return c.json({ ok: true });
+  });
+
+  // Everything below needs a session.
+  app.use("*", async (c, next) => {
+    const claims = await verifyJwt(getCookie(c, COOKIE), c.env.JWT_SECRET);
+    if (!claims) return c.json({ error: "auth" }, 401);
+    c.set("user", claims);
+    await next();
+  });
+
+  app.get("/auth/me", async (c) => {
+    const u = await c.env.DB.prepare("SELECT id, name, email, role FROM app_user WHERE id = ? AND deleted = 0").bind(c.get("user").sub).first();
+    return u ? c.json(u) : c.json({ error: "auth" }, 401);
+  });
+
+  app.post("/sync", async (c) => {
+    const b = await c.req.json<{ since?: string; rows?: unknown[] }>().catch(() => null);
+    if (!b || !Array.isArray(b.rows ?? [])) return c.json({ error: "invalid" }, 400);
+    const owner = c.get("user").sub;
+    const pushed = await pushChanges(c.env.DB, owner, (b.rows ?? []) as never[]);
+    const pulled = await pullChanges(c.env.DB, owner, typeof b.since === "string" ? b.since : "");
+    return c.json({ ...pulled, accepted: pushed.accepted, rejected: pushed.rejected });
+  });
+
+  app.get("/push/key", (c) => c.json({ key: c.env.VAPID_PUBLIC_KEY ?? null }));
+
+  app.post("/push/subscribe", async (c) => {
+    const s = await c.req.json<PushSubscriptionJson>().catch(() => null);
+    if (!s || typeof s.endpoint !== "string" || !s.endpoint.startsWith("https://") || !s.keys?.p256dh || !s.keys?.auth) return c.json({ error: "invalid" }, 400);
+    const user = c.get("user").sub;
+    await c.env.DB.prepare("DELETE FROM push_sub WHERE endpoint = ?").bind(s.endpoint).run();
+    await c.env.DB.prepare("INSERT INTO push_sub (id, user_id, endpoint, keys, created_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(ulid(), user, s.endpoint, JSON.stringify(s.keys), new Date().toISOString()).run();
+    return c.json({ ok: true }, 201);
+  });
+
+  app.post("/notify", async (c) => {
+    const b = await c.req.json<{ elder_id?: string; text?: string }>().catch(() => ({} as Record<string, string>));
+    const owner = c.get("user").sub;
+    const meta = await c.env.DB.prepare("SELECT owner FROM sync_meta WHERE tbl = 'elder' AND id = ?").bind(String(b.elder_id ?? "")).first<{ owner: string }>();
+    if (!meta || meta.owner !== owner) return c.json({ error: "not found" }, 404);
+    const sent = await pushToUser(c.env, owner, { title: "Sahaya", body: String(b.text ?? "").slice(0, 300), tag: `help:${b.elder_id}`, urgent: true });
+    return c.json({ sent });
+  });
+
+  return app;
+}
+
+function corsHeaders(allowed: string | undefined, origin: string | undefined): Record<string, string> {
+  if (!allowed || origin !== allowed) return {};
+  return {
+    "access-control-allow-origin": allowed,
+    "access-control-allow-credentials": "true",
+    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    vary: "origin",
+  };
+}
+
+/** Push to every subscription of a user; drops subscriptions the push service says are gone. */
+export async function pushToUser(env: Env, userId: string, msg: Parameters<typeof sendPush>[1], f?: Parameters<typeof sendPush>[3]): Promise<number> {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return 0;
+  const vapid = { subject: env.VAPID_SUBJECT ?? "mailto:admin@example.invalid", publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY };
+  const subs = (await env.DB.prepare("SELECT id, endpoint, keys FROM push_sub WHERE user_id = ?").bind(userId).all<{ id: string; endpoint: string; keys: string }>()).results;
+  let sent = 0;
+  for (const s of subs) {
+    try {
+      const status = await sendPush({ endpoint: s.endpoint, keys: JSON.parse(s.keys) }, msg, vapid, f);
+      if (status === 404 || status === 410) await env.DB.prepare("DELETE FROM push_sub WHERE id = ?").bind(s.id).run();
+      else if (status < 300) sent++;
+    } catch { /* one bad subscription must not stop the others */ }
+  }
+  return sent;
+}

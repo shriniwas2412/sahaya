@@ -1,0 +1,7 @@
+# Copy to .dev.vars for `wrangler dev` (.dev.vars is gitignored). Names only here.
+JWT_SECRET=
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:
+APP_ORIGIN=http://localhost:5173
+INSECURE_COOKIE=1

@@ -46,3 +46,16 @@ test("a second sync with no new local writes pushes nothing", async () => {
   const again = await syncOnce(r, server.post);
   assert.equal(again.pushed, 0);
 });
+
+test("paged pulls continue until the server has no more", async () => {
+  const r = await Repo.open(memoryBackend(), ids);
+  const pages = [
+    { rows: [{ table: "elder" as const, row: { id: "e1", display_name: "Test Elder 1", _v: { display_name: "000000000000001:00000:s" } } }], cursor: "c1", more: true },
+    { rows: [{ table: "elder" as const, row: { id: "e2", display_name: "Test Elder 2", _v: { display_name: "000000000000002:00000:s" } } }], cursor: "c2", more: false },
+  ];
+  const seen: string[] = [];
+  const res = await syncOnce(r, async (b) => { seen.push(b.since); return pages.shift()!; });
+  assert.equal(res.pulled, 2);
+  assert.deepEqual(seen, ["", "c1"]);
+  assert.equal(await r.backend.getMeta("sync_cursor"), "c2");
+});
