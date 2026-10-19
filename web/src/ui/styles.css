@@ -4,15 +4,15 @@
   --bg: #f7f3ec;
   --surface: #ffffff;
   --surface-2: #efe8dc;
-  --ink: #1f1a14;          /* 16.4:1 on --bg */
-  --ink-2: #4a4036;        /* 9.3:1 on --bg */
+  --ink: #1f1a14;          /* 15.6:1 on --bg */
+  --ink-2: #4a4036;        /* 9.1:1 on --bg */
   --line: #cfc3b1;
-  --brand: #1d5c4d;        /* deep teal, 7.6:1 on white */
+  --brand: #1d5c4d;        /* deep teal, 7.8:1 on white */
   --brand-ink: #ffffff;
   --brand-soft: #dcebe6;
-  --warn: #8a4b00;         /* 6.9:1 on white */
+  --warn: #8a4b00;         /* 6.8:1 on white */
   --warn-soft: #fbead2;
-  --danger: #a3141c;       /* 7.4:1 on white */
+  --danger: #a3141c;       /* 7.9:1 on white */
   --danger-ink: #ffffff;
   --ok: #1e6b2f;
   --focus: #0b57d0;
