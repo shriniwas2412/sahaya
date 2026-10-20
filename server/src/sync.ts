@@ -3,7 +3,8 @@
 // versions and a server change stamp, so `since` pulls never miss a row written
 // by a device whose clock was behind.
 
-import { mergeRecord, rowStamp, createClock, type Versioned } from "../../web/src/core/sync.ts";
+import { rowStamp, createClock, type Versioned } from "../../web/src/core/sync.ts";
+import { mergeRow } from "../../web/src/core/merge.ts";
 import type { D1Database } from "./env.ts";
 
 // Columns a client may write, per table. Anything else in a row is dropped.
@@ -29,9 +30,9 @@ const toDb = (k: string, v: unknown) =>
 const fromDb = (k: string, v: unknown) => (JSON_COLS.has(k) && typeof v === "string" ? safeJson(v) : v);
 function safeJson(s: string) { try { return JSON.parse(s); } catch { return s; } }
 
-async function serverClock(db: D1Database) {
+async function serverClock(db: D1Database, now?: () => number) {
   const top = await db.prepare("SELECT MAX(hlc) AS h FROM sync_meta").first<{ h: string | null }>();
-  const clock = createClock("server");
+  const clock = createClock("server", now);
   if (top?.h) clock.observe(top.h);
   return clock;
 }
@@ -49,9 +50,9 @@ async function loadRow(db: D1Database, table: string, id: string): Promise<{ row
 
 export interface PushResult { accepted: number; rejected: { table: string; id: string; reason: string }[] }
 
-export async function pushChanges(db: D1Database, owner: string, changes: Change[]): Promise<PushResult> {
+export async function pushChanges(db: D1Database, owner: string, changes: Change[], now?: () => number): Promise<PushResult> {
   const out: PushResult = { accepted: 0, rejected: [] };
-  const clock = await serverClock(db);
+  const clock = await serverClock(db, now);
   for (const c of changes.slice(0, 2000)) {
     const cols = COLUMNS[c.table];
     const id = c.row?.id;
@@ -63,7 +64,7 @@ export async function pushChanges(db: D1Database, owner: string, changes: Change
 
     const prev = await loadRow(db, c.table, id);
     if (prev && prev.owner !== owner) { out.rejected.push({ table: c.table, id, reason: "forbidden" }); continue; }
-    const merged = mergeRecord(prev?.row, clean);
+    const merged = mergeRow(c.table, prev?.row, clean);
     const names = ["id", ...cols, "origin", "deleted", "created_by", "hlc"];
     const values = [id, ...cols.map((k) => toDb(k, merged[k])), merged.origin ?? null, merged.deleted ? 1 : 0, owner, rowStamp(merged) || clock.tick()];
     try {
@@ -94,11 +95,11 @@ export async function pullChanges(db: D1Database, owner: string, since: string, 
 }
 
 /** Write a row on the server's own behalf (cron), through the same merge path. */
-export async function serverWrite(db: D1Database, owner: string, table: string, row: Record<string, unknown>): Promise<void> {
-  const clock = await serverClock(db);
+export async function serverWrite(db: D1Database, owner: string, table: string, row: Record<string, unknown>, now?: number): Promise<void> {
+  const clock = await serverClock(db, now === undefined ? undefined : () => now);
   const prev = await loadRow(db, table, row.id as string);
   const ts = clock.tick();
   const v: Record<string, string> = { ...(prev?.row._v ?? {}) };
   for (const k of Object.keys(row)) if (k !== "id" && JSON.stringify(prev?.row[k]) !== JSON.stringify(row[k])) v[k] = ts;
-  await pushChanges(db, owner, [{ table, row: { ...(prev?.row ?? {}), ...row, id: row.id as string, _v: v } }]);
+  await pushChanges(db, owner, [{ table, row: { ...(prev?.row ?? {}), ...row, id: row.id as string, _v: v } }], now === undefined ? undefined : () => now);
 }

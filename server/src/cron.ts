@@ -54,7 +54,7 @@ export async function runCron(env: Env, now = Date.now(), f?: Fetch): Promise<Cr
       report.pushes += await pushToUser(env, owner, {
         title: lang === "hi" ? "दवाई का समय" : "Medicine time", body: `${m.elder_name}: ${m.name}`, tag: ev.id,
       }, f);
-      await serverWrite(env.DB, owner, "dose_event", { ...ev });
+      await serverWrite(env.DB, owner, "dose_event", { ...ev }, now);
     } else if (ev.status === "missed") {
       report.missed++;
       const text = missedDoseMessage(String(m.elder_name), String(m.name), ev.scheduled_at, tz, lang);
@@ -62,10 +62,10 @@ export async function runCron(env: Env, now = Date.now(), f?: Fetch): Promise<Cr
       await serverWrite(env.DB, owner, "safety_event", {
         id: ulid(now), elder_id: m.elder_id, session_id: null, at: new Date(now).toISOString(), trigger: "missed_dose",
         matched: ev.id, action: "caregiver_push", resolved_at: null, resolved_by: null,
-      });
-      await serverWrite(env.DB, owner, "dose_event", { ...step(ev, { type: "escalated" }, now) });
+      }, now);
+      await serverWrite(env.DB, owner, "dose_event", { ...step(ev, { type: "escalated" }, now) }, now);
     } else {
-      await serverWrite(env.DB, owner, "dose_event", { ...ev });
+      await serverWrite(env.DB, owner, "dose_event", { ...ev }, now);
     }
   }
   return report;
