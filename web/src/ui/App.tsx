@@ -1,5 +1,5 @@
 import { createContext } from "preact";
-import { useContext, useEffect, useState, useCallback } from "preact/hooks";
+import { useContext, useEffect, useState, useCallback, useRef } from "preact/hooks";
 import type { Repo } from "../data/repo.ts";
 import type { ElderRow } from "../core/profile.ts";
 import type { DoseEvent, Medicine } from "../core/doses.ts";
@@ -9,6 +9,7 @@ import { Setup } from "./Setup.tsx";
 import { Home } from "./Home.tsx";
 import { Elder } from "./Elder.tsx";
 import { Feedback } from "./Feedback.tsx";
+import { Welcome, DemoBanner } from "./Demo.tsx";
 
 export interface SessionRow {
   id: string; elder_id: string; mode: "companion" | "memory_activity" | "paper";
@@ -29,9 +30,11 @@ export interface Data {
   sessions: SessionRow[];
   safety: SafetyRow[];
   activities: ActivityRow[];
+  /** Demo data is loaded: show the banner, never dial, never sync. */
+  demo: boolean;
 }
 
-export type Route = { name: "setup"; edit: boolean } | { name: "home"; tab?: string } | { name: "elder"; sessionId: string } | { name: "feedback"; sessionId: string };
+export type Route = { name: "welcome" } | { name: "setup"; edit: boolean } | { name: "home"; tab?: string } | { name: "elder"; sessionId: string } | { name: "feedback"; sessionId: string };
 
 interface Ctx {
   repo: Repo;
@@ -54,7 +57,8 @@ async function load(repo: Repo): Promise<Data> {
   const sIds = new Set(sessions.map((s) => s.id));
   const safety = elder ? (await repo.list<SafetyRow>("safety_event")).filter((s) => s.elder_id === elder.id) : [];
   const activities = (await repo.list<ActivityRow>("activity_score")).filter((a) => sIds.has(a.session_id));
-  return { elder, meds, doses, sessions, safety, activities };
+  const demo = (await repo.backend.getMeta<boolean>("demo")) === true;
+  return { elder, meds, doses, sessions, safety, activities, demo };
 }
 
 export function App({ repo, initialLang }: { repo: Repo; initialLang: Lang }) {
@@ -62,7 +66,13 @@ export function App({ repo, initialLang }: { repo: Repo; initialLang: Lang }) {
   const [data, setData] = useState<Data | null>(null);
   const [route, setRoute] = useState<Route>({ name: "home" });
 
-  const reload = useCallback(async () => setData(await load(repo)), [repo]);
+  // Loads can overlap (several saves in a row); only the newest one may set state.
+  const latest = useRef(0);
+  const reload = useCallback(async () => {
+    const n = ++latest.current;
+    const d = await load(repo);
+    if (n === latest.current) setData(d);
+  }, [repo]);
   useEffect(() => {
     reload();
     return repo.onChange(reload);
@@ -92,9 +102,11 @@ export function App({ repo, initialLang }: { repo: Repo; initialLang: Lang }) {
 
   if (!data) return <div class="page" aria-busy="true" />;
   const ctx: Ctx = { repo, lang, t: STRINGS[lang], setLang, data, go: setRoute };
-  const r: Route = !data.elder && route.name !== "setup" ? { name: "setup", edit: false } : route;
+  const r: Route = !data.elder && route.name !== "setup" ? { name: "welcome" } : route;
   return (
     <AppCtx.Provider value={ctx}>
+      {data.demo && r.name !== "elder" && <DemoBanner />}
+      {r.name === "welcome" && <Welcome />}
       {r.name === "setup" && <Setup edit={r.edit} />}
       {r.name === "home" && <Home tab={r.tab} />}
       {r.name === "elder" && <Elder sessionId={r.sessionId} />}

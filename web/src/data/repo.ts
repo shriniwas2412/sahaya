@@ -1,7 +1,8 @@
 // Local rows with CRDT stamps. Every write goes through here, so every row carries
 // per-field versions (_v), its newest stamp (hlc) and the device it came from (origin).
 
-import { createClock, mergeRecord, rowStamp, stamp, tombstone, maxStamp, type Clock, type Versioned } from "../core/sync.ts";
+import { mergeRow } from "../core/merge.ts";
+import { createClock, rowStamp, stamp, tombstone, maxStamp, type Clock, type Versioned } from "../core/sync.ts";
 
 export const TABLES = ["elder", "medicine", "dose_event", "session", "activity_score", "safety_event", "consent"] as const;
 export type Table = (typeof TABLES)[number];
@@ -10,6 +11,8 @@ export interface Backend {
   get(table: Table, id: string): Promise<Versioned | undefined>;
   put(table: Table, row: Versioned): Promise<void>;
   all(table: Table): Promise<Versioned[]>;
+  /** Hard delete on this device only (demo data). Synced deletes use tombstones instead. */
+  delete(table: Table, id: string): Promise<void>;
   getMeta<T>(key: string): Promise<T | undefined>;
   setMeta(key: string, value: unknown): Promise<void>;
 }
@@ -45,6 +48,8 @@ export class Repo {
     return () => this.listeners.delete(fn);
   }
   private emit() { for (const fn of this.listeners) fn(); }
+  /** Tell listeners that device-local settings changed (they are not rows, so no save fires). */
+  changed() { this.emit(); }
 
   async get<T>(table: Table, id: string): Promise<T | undefined> {
     const r = await this.backend.get(table, id);
@@ -78,13 +83,19 @@ export class Repo {
     this.emit();
   }
 
+  /** Remove rows from this device without a tombstone. Only for data that never synced (demo). */
+  async purge(table: Table, ids: string[]): Promise<void> {
+    for (const id of ids) await this.backend.delete(table, id);
+    if (ids.length) this.emit();
+  }
+
   /** Merge rows from another device or the server. */
   async applyRemote(changes: Change[]): Promise<number> {
     let n = 0;
     for (const { table, row } of changes) {
       if (!TABLES.includes(table) || typeof row?.id !== "string") continue;
       const prev = await this.backend.get(table, row.id);
-      const merged = mergeRecord(prev, row);
+      const merged = mergeRow(table, prev, row);
       merged.hlc = rowStamp(merged);
       if (JSON.stringify(prev) !== JSON.stringify(merged)) {
         await this.backend.put(table, merged);
@@ -120,6 +131,7 @@ export function memoryBackend(): Backend {
     async get(table, id) { return clone(tbl(table).get(id)); },
     async put(table, row) { tbl(table).set(row.id, clone(row)); },
     async all(table) { return [...tbl(table).values()].map(clone); },
+    async delete(table, id) { tbl(table).delete(id); },
     async getMeta(key) { return clone(meta.get(key)) as never; },
     async setMeta(key, value) { meta.set(key, clone(value)); },
   };

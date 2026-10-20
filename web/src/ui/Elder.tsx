@@ -14,6 +14,8 @@ import { ulid } from "../core/ids.ts";
 import { speak, stopSpeaking } from "./voice.ts";
 import { notifyCaregiver } from "./api.ts";
 import { llmFromSettings, type LlmSettings } from "./llmSettings.ts";
+import { dialAction } from "../data/demo.ts";
+import { STRINGS } from "./i18n.ts";
 
 const COPY = {
   hi: {
@@ -102,7 +104,7 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm }: {
     const targets: Target[] = [];
     for (const a of r.actions) {
       if (a.type === "log") await logSafety(a.event);
-      else if (a.type === "notify_caregiver") notifyCaregiver(elder.id, a.text).catch(() => {});
+      else if (a.type === "notify_caregiver" && !data.demo) notifyCaregiver(elder.id, a.text).catch(() => {}); // demo: no server
       else if (a.type === "call") targets.push({ target: a.target, tel: a.url });
       else if (a.type === "whatsapp") {
         const t = targets.find((x) => x.target.phone === a.target.phone);
@@ -208,6 +210,8 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm }: {
         <span class="ring" />
       </button>
 
+      <div class="elder-body">
+      {data.demo && <span class="demo-pill">{STRINGS[lang].demoBanner}</span>}
       <h1 class="hello">{c.hello(profile.displayName)}</h1>
       {photo && <img class="photo" src={photo} alt="" />}
       <p class="said" aria-live="polite">{said}</p>
@@ -232,9 +236,11 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm }: {
         )}
       </div>
 
+      {data.demo && <DemoSay label={STRINGS[lang].demoType} send={STRINGS[lang].demoSend} onSay={heard} />}
       <div class="grid2">
         <button class="soft" onClick={() => say(said)}>↻ {c.again}</button>
         <button class="soft" onClick={() => setVolume(volume < 1 ? 1 : 0.6)}>{volume < 1 ? `🔊 ${c.louder}` : `🔉 ${c.softer}`}</button>
+      </div>
       </div>
       <button class="help" onClick={() => handle(pipe.help())}>🆘 {c.help}</button>
 
@@ -250,10 +256,11 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm }: {
             )}
             {em.phase === "calling" && (
               <>
+                {data.demo && <p class="demo-note">{STRINGS[lang].demoNoDial}</p>}
                 {em.targets.map(({ target, tel, wa }) => (
                   <>
-                    {tel && <a class="btn call" href={tel} style="font-size:var(--fs-elder);min-height:80px">📞 {c.call(target.kind === "helpline" ? c.helpline : target.name)}</a>}
-                    {wa && <a class="btn call" href={wa} target="_blank" rel="noopener" style="font-size:var(--fs-elder);min-height:80px">💬 {c.wa}</a>}
+                    {tel && <CallLink href={tel} demo={data.demo} text={`📞 ${c.call(target.kind === "helpline" ? c.helpline : target.name)}`} />}
+                    {wa && <CallLink href={wa} demo={data.demo} text={`💬 ${c.wa}`} />}
                   </>
                 ))}
                 <div class="grid2">
@@ -270,6 +277,36 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm }: {
 
       {askPin && <PinPad lang={lang} onCancel={() => setAskPin(false)} onOk={unlocked} />}
     </main>
+  );
+}
+
+/** A call/WhatsApp button. In demo mode it shows the link instead of opening it. */
+function CallLink({ href, demo, text }: { href: string; demo: boolean; text: string }) {
+  const d = dialAction(href, demo);
+  const style = "font-size:var(--fs-elder);min-height:80px";
+  if (d.kind === "open") return <a class="btn call" href={d.href} target={href.startsWith("http") ? "_blank" : undefined} rel="noopener" style={style}>{text}</a>;
+  return (
+    <div class="call preview" style={style} aria-label={`${text}: ${d.label}`}>
+      <span>{text}</span>
+      <code>{d.label}</code>
+    </div>
+  );
+}
+
+/** Demo only: type a sentence and send it through the same pipeline as speech. */
+function DemoSay({ label, send, onSay }: { label: string; send: string; onSay(t: string): void }) {
+  const [v, setV] = useState("");
+  return (
+    <details class="demo-say" onPointerDown={(e) => e.stopPropagation()}>
+      <summary>⌨ {label}</summary>
+      <form class="demo-say" onSubmit={(e) => { e.preventDefault(); if (v.trim()) { onSay(v.trim()); setV(""); } }}>
+        <label for="demo-say" class="sr-only">{label}</label>
+        <div class="row">
+          <input id="demo-say" class="grow" value={v} onInput={(e) => setV(e.currentTarget.value)} autocomplete="off" />
+          <button class="soft" type="submit">{send}</button>
+        </div>
+      </form>
+    </details>
   );
 }
 

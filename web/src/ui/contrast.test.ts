@@ -30,4 +30,10 @@ test("elder mode: main text meets AAA (7:1); buttons meet AA", () => {
   assert.ok(ratio("#1f1a14", "#f3d36b") >= 7);    // Talk button
   assert.ok(ratio("#ffffff", "#1e6b2f") >= 4.5);  // Taken button
   assert.ok(ratio("#1f1a14", "#fdfaf3") >= 7);    // dose card
+  assert.ok(ratio("#1f1a14", "#f3d36b") >= 7);    // demo pill
+});
+
+test("demo banner and the missing-helpline hint meet AA", () => {
+  assert.ok(ratio("#fdf3df", "#2b2116") >= 7);
+  assert.ok(ratio(token("warn"), token("warn-soft")) >= 4.5, ratio(token("warn"), token("warn-soft")).toFixed(2));
 });

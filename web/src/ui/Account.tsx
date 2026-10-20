@@ -50,7 +50,7 @@ export function Account() {
         <h1>{t.accTitle}</h1>
         <p class="muted">{t.accHint}</p>
         {!navigator.onLine && <p class="card warn small">{t.offline}</p>}
-        {user ? (
+        {data.demo ? <p class="card warn small">{t.demoNoSync}</p> : user ? (
           <>
             <p><strong>{user.name}</strong> · {user.email}</p>
             <div class="row">

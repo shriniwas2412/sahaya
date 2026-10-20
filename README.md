@@ -3,6 +3,8 @@
 A gentle, voice-first companion for an older person living with dementia, set up by their family caregiver.
 Hindi first, English too. Works offline on a low-cost Android phone as an installable web app (PWA).
 
+**Live demo:** `https://<your-github-username>.github.io/<repo-name>/` (opens in demo mode with made-up data; fill in after the first Pages deploy)
+
 > **Not a medical device.** Sahaya does not diagnose, assess a dementia stage, or give medical or dosage advice.
 > Medicine support is a reminder with a "Taken" button and a caregiver alert. Nothing more.
 
@@ -49,6 +51,22 @@ Long silence (two unanswered gentle checks) and bursts of rapid taps also start 
 - "medicine time" pushes;
 - a missed-dose alert to the caregiver when a dose is not confirmed within the escalation delay.
 
+## Demo mode
+
+"नमूना देखें / Try the demo" on the first screen (and the hosted demo, built with `VITE_DEMO=1`) loads one made-up profile on this phone only:
+
+- "Shanti (demo)", GDS stage 4, Hindi. She likes old film songs and cooking, hospital talk is on the avoid-list, and her evening restlessness window is 17:00–19:00.
+- Two demo family contacts with obviously fake numbers (+91 90000 00001 / 00002). **No helpline is set**, so the home screen asks the caregiver to add a verified local one.
+- Two demo medicines, three past sessions with caregiver feedback, and four past memory activities, so no screen is empty.
+- The demo PIN is **1234**. It is shown on the "नमूना डेटा / Demo data" banner.
+
+While demo data is loaded:
+- **Calls and WhatsApp are never opened.** The emergency screen shows the `tel:` / `wa.me` link it *would* open.
+- **Nothing goes to a server.** Sync is refused and no caregiver alert is sent.
+- **Typing stands in for the voice.** A "type what the elder says" box sends text through the same safety screen and companion, so the safety flow can be shown without a microphone.
+
+"नमूना हटाएँ / Clear demo data" removes every demo row (and anything made while trying it) from the phone, with no sync tombstones left behind.
+
 ## Run it locally
 
 Needs Node 23.6 or later (the tests use Node's built-in TypeScript type stripping).
@@ -74,6 +92,17 @@ npx wrangler dev                    # http://localhost:8787
 ```
 
 `wrangler` is not a listed dependency, so `npx` fetches it on first use.
+
+**Demo login for the local server.** Put `DEMO_EMAIL` and `DEMO_PASSWORD` in `server/.dev.vars` (gitignored; the example file has placeholders), then:
+
+```bash
+node scripts/seed-demo.ts
+npx wrangler d1 execute sahaya --local --file=.wrangler/seed-demo.sql
+```
+
+This creates (or resets) one caregiver account to sign in with on the Account tab. It is for local development only; never reuse that password.
+
+**GitHub Pages.** `.github/workflows/pages.yml` runs the web tests, builds `web/` in demo mode with `VITE_BASE=/<repo>/`, and publishes it on every push to `main`. It needs no secrets. One-time setup: repo Settings → Pages → Source: "GitHub Actions".
 
 `wrangler.toml` has a placeholder `database_id`. Nothing is deployed from this repo. To deploy:
 1. `wrangler d1 create sahaya`, and put the real id in `wrangler.toml`.
@@ -116,15 +145,17 @@ npx wrangler dev                    # http://localhost:8787
 
 | What | Value | Source |
 |---|---|---|
-| Unit tests, web | 215 passing | `cd web && npm test` |
-| Unit tests, server | 17 passing | `cd server && npm test` |
+| Unit tests, web | 229 passing | `cd web && npm test` |
+| Unit tests, server | 20 passing | `cd server && npm test` |
+| Demo guard | demo load/clear, no sync, no dial (link preview only) | `web/src/data/demo.test.ts` |
+| Dose merge | a "taken" from a phone with a slow clock still beats the server's later "due" | `web/src/core/merge.test.ts` |
 | Prompt generator | one snapshot per GDS stage 1–7 | `web/src/core/companion/prompt.test.ts` |
 | Web Push encryption | byte-identical to the RFC 8291 Appendix A example | `server/test/webpush.test.ts` |
 | CRDT merge | same result for 30 random merge orders of 5 devices | `web/src/core/sync.test.ts` |
-| Production JS bundle | 148.1 kB, 51.6 kB gzipped (CSS 2.5 kB gzipped) | `npm run build` output |
+| Production JS bundle | 160.6 kB, 55.6 kB gzipped (CSS 3.1 kB gzipped) | `npm run build` output |
 | Text contrast, caregiver screens | ≥ 4.5:1 (WCAG AA) for the 7 text/background token pairs tested; body text 15.6:1 | `web/src/ui/contrast.test.ts` |
 | Text contrast, elder mode | 15.6:1 main text (WCAG AAA ≥ 7:1) | `web/src/ui/contrast.test.ts` |
-| Layout check | 21 screens × 2 sizes (375×812, 1280×800): no horizontal scroll, every control ≥ 48×48 px, text ≥ 16 px (≥ 24 px in elder mode), every control named | Playwright pass, synthetic data only |
+| Layout check | 21 setup-flow screens and 15 demo-story screens, each at 375×812 and 1280×800: no horizontal scroll, every control ≥ 48×48 px, text ≥ 16 px (≥ 24 px in elder mode), every control named; in demo, zero `tel:`/`wa.me` links and zero server requests | Playwright passes, synthetic data only |
 | Offline | after one online visit, a reload with the network off renders the app | Playwright pass |
 | Timings | escalation default 30 min; snooze 10 min, never past the escalation deadline; emergency auto-call after 20 s with no answer; unlock hold 3 s; LLM timeout 8 s, then the scripted reply | the tests next to `doses.ts`, `companion/emergency.ts`, `pin.ts`, `companion/llm.ts` |
 
@@ -158,7 +189,8 @@ npx wrangler dev                    # http://localhost:8787
   - D1's free tier enforces daily read/write limits; past them, queries fail until midnight UTC ([changelog](https://developers.cloudflare.com/changelog/post/2026-09-01-d1-free-tier-limit-enforcement/)).
   - Workers' free plan allows 5 cron triggers and 10 ms CPU per cron run ([limits](https://developers.cloudflare.com/workers/platform/limits)). Sahaya uses one.
 - **Helpline numbers.** Elderline (14567, 8 am to 8 pm) and 112 are offered as choices with their sources. Check that the number works in your area before relying on it.
-- **Test data only.** All screenshots and test fixtures use synthetic people ("Test Elder 1", "Test Daughter", 90000 0000x numbers). No real person's data is in this repository.
+- **Test data only.** All screenshots, test fixtures and the demo use synthetic people ("Test Elder 1", "Shanti (demo)", "Demo Beta", 90000 0000x numbers). No real person's data is in this repository.
+- **The hosted demo is a demo.** It runs only in the browser; there is no account, sync or push there.
 
 ## References
 

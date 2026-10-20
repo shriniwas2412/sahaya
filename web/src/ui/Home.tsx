@@ -9,6 +9,10 @@ import { step, missedDoseMessage, localClock, DEFAULT_ESCALATE_MIN, type DoseEve
 import { localDay, IST_OFFSET_MIN } from "../core/doseTick.ts";
 import { waLink } from "../core/contacts.ts";
 import { ulid } from "../core/ids.ts";
+import { dialAction } from "../data/demo.ts";
+import { describeSafety } from "./safetyText.ts";
+
+const FACES = ["😣", "🙁", "😐", "🙂", "😄"];
 
 const TABS = ["today", "profile", "activities", "account"] as const;
 type Tab = (typeof TABS)[number];
@@ -64,14 +68,22 @@ function Today() {
 
   const clock = (iso: string) => { const { h, m } = localClock(iso, IST_OFFSET_MIN); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
   const recent = [...data.safety].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5);
-  const sessions = [...data.sessions].sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? "")).slice(0, 5);
+  const sessions = [...data.sessions].sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? "")).filter((s) => s.mode === "companion").slice(0, 5);
+  const lastMood = sessions.find((s) => s.feedback_mood)?.feedback_mood ?? null;
+  const when = (iso: string) => new Date(iso).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 
   return (
     <>
-      <section class="card stack">
-        <h1>{elder.display_name}</h1>
-        <p class="muted">{elder.gds_stage ? `GDS ${elder.gds_stage} · ${GDS[elder.gds_stage].title[lang]}` : t.notAssessed}</p>
-        <button class="primary block" style="min-height:64px;font-size:var(--fs-lg)" onClick={startElder}>{t.startElder}</button>
+      <section class="card hero-card stack">
+        <div class="row">
+          <div class="grow">
+            <h1>{elder.display_name}</h1>
+            <p class="muted">{elder.gds_stage ? `GDS ${elder.gds_stage} · ${GDS[elder.gds_stage].title[lang]}` : t.notAssessed}</p>
+          </div>
+          {lastMood && <span class="mood" title={t.lastMood} aria-label={`${t.lastMood}: ${t.moods[lastMood - 1]}`}>{FACES[lastMood - 1]}</span>}
+        </div>
+        <button class="primary block big" onClick={startElder}>{t.startElder}</button>
+        {!elder.ngo_helpline && <p class="hint-warn" role="note">{t.helplineMissing}</p>}
       </section>
 
       <section class="card">
@@ -83,7 +95,8 @@ function Today() {
             const open = !["taken", "skipped"].includes(d.status);
             const late = d.status === "missed" || d.status === "escalated";
             const msg = m ? missedDoseMessage(elder.display_name, m.name, d.scheduled_at, IST_OFFSET_MIN, uiLang(elder.language)) : "";
-            const wa = late && first ? waLink(first.phone, msg) : null;
+            const waHref = late && first ? waLink(first.phone, msg) : null;
+            const wa = waHref ? dialAction(waHref, data.demo) : null;
             return (
               <li class="stack">
                 <div class="row">
@@ -94,7 +107,8 @@ function Today() {
                   <div class="row">
                     <button onClick={() => act(d, "take")}>✓ {t.markTaken}</button>
                     <button class="ghost" onClick={() => act(d, "skip")}>{t.markSkipped}</button>
-                    {wa && <a class="btn" href={wa} target="_blank" rel="noopener">{t.alertFamily}</a>}
+                    {wa?.kind === "open" && <a class="btn" href={wa.href} target="_blank" rel="noopener">{t.alertFamily}</a>}
+                    {wa?.kind === "preview" && <span class="small muted">{t.demoNoDial} <code>{wa.label}</code></span>}
                   </div>
                 )}
               </li>
@@ -107,15 +121,24 @@ function Today() {
         <h2>{t.safetyTitle}</h2>
         {!recent.length && <p class="muted">{t.noSafety}</p>}
         <ul class="list">
-          {recent.map((s) => <li><strong>{new Date(s.at).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN")}</strong> · {s.trigger} · {s.action}{s.matched ? ` · “${s.matched}”` : ""}</li>)}
+          {recent.map((s) => (
+            <li>
+              <strong>{when(s.at)}</strong>
+              <span class="block-line">{describeSafety(t, s.trigger, s.action)}{s.trigger === "keyword" && s.matched ? ` · “${s.matched}”` : ""}</span>
+            </li>
+          ))}
         </ul>
       </section>
 
       <section class="card">
         <h2>{t.lastSessions}</h2>
         <ul class="list">
-          {sessions.filter((s) => s.mode === "companion").map((s) => (
-            <li>{new Date(s.started_at ?? "").toLocaleString(lang === "hi" ? "hi-IN" : "en-IN")} · {s.feedback_mood ? t.moods[s.feedback_mood - 1] : "—"}</li>
+          {!sessions.length && <p class="muted">—</p>}
+          {sessions.map((s) => (
+            <li class="row">
+              <span class="grow">{when(s.started_at ?? "")}</span>
+              <span>{s.feedback_mood ? `${FACES[s.feedback_mood - 1]} ${t.moods[s.feedback_mood - 1]}` : "—"}</span>
+            </li>
           ))}
         </ul>
       </section>

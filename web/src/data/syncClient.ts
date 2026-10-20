@@ -13,6 +13,8 @@ export type Post = (body: { since: string; rows: Change[] }) => Promise<SyncResp
 export interface SyncResult { pushed: number; pulled: number; cursor: string }
 
 export async function syncOnce(repo: Repo, post: Post): Promise<SyncResult> {
+  // Demo data is synthetic and local; it must never reach a server.
+  if ((await repo.backend.getMeta<boolean>("demo")) === true) throw new Error("sync is off in demo mode");
   const pushedUpTo = (await repo.backend.getMeta<string>("sync_pushed")) ?? "";
   const since = (await repo.backend.getMeta<string>("sync_cursor")) ?? "";
   const rows = await repo.changedSince(pushedUpTo);
