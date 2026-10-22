@@ -41,13 +41,13 @@ const COPY = {
 // Text fed to the pipeline for each big button when listening is not available.
 const TAP_TEXT = { hi: { yes: "हाँ", no: "नहीं", song: "गाना सुनाओ", story: "कहानी सुनाओ" }, en: { yes: "yes", no: "no", song: "sing a song", story: "tell a story" } };
 
-interface Consent { scope_audio_cloud: 0 | 1; subject_id: string; recorded_at: string; withdrawn_at?: string | null }
+interface Consent { scope_audio_cloud: 0 | 1; scope_llm_cloud?: 0 | 1; subject_id: string; recorded_at: string; withdrawn_at?: string | null }
 type Target = { target: CallTarget; tel?: string; wa?: string };
 
 export function Elder({ sessionId }: { sessionId: string }) {
   const { repo, data } = useApp();
   const elder = data.elder!;
-  const [ready, setReady] = useState<{ distress: string[]; photo: string | null; speech: SpeechProvider; stt: boolean; llm: LLMProvider | undefined } | null>(null);
+  const [ready, setReady] = useState<{ distress: string[]; photo: string | null; speech: SpeechProvider; stt: boolean; llm: LLMProvider | undefined; consent: Consent | null } | null>(null);
   useEffect(() => {
     (async () => {
       const distress = (await repo.backend.getMeta<string[]>(`distress:${elder.id}`)) ?? [];
@@ -58,15 +58,15 @@ export function Elder({ sessionId }: { sessionId: string }) {
       const speech = new WebSpeechProvider({ consent: consent ?? null });
       const caps = await speech.capabilities(speechLocale(elder.language)).catch(() => ({ stt: false }));
       const llm = llmFromSettings(await repo.backend.getMeta<LlmSettings>("llm"));
-      setReady({ distress, photo, speech, stt: caps.stt, llm });
+      setReady({ distress, photo, speech, stt: caps.stt, llm, consent: consent ?? null });
     })();
   }, [repo, elder.id]);
   if (!ready) return <main class="elder" aria-busy="true" />;
   return <ElderScreen sessionId={sessionId} {...ready} />;
 }
 
-function ElderScreen({ sessionId, distress, photo, speech, stt, llm }: {
-  sessionId: string; distress: string[]; photo: string | null; speech: SpeechProvider; stt: boolean; llm: LLMProvider | undefined;
+function ElderScreen({ sessionId, distress, photo, speech, stt, llm, consent }: {
+  sessionId: string; distress: string[]; photo: string | null; speech: SpeechProvider; stt: boolean; llm: LLMProvider | undefined; consent: Consent | null;
 }) {
   const { repo, data, go } = useApp();
   const elder = data.elder!;
@@ -79,7 +79,8 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm }: {
     const feedback = data.sessions.filter((s) => s.feedback_mood || s.feedback_keep?.length || s.feedback_avoid?.length)
       .sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""))
       .map((s) => ({ mood: s.feedback_mood as 1 | 2 | 3 | 4 | 5 | null, keep: s.feedback_keep ?? [], avoid: s.feedback_avoid ?? [], notes: s.feedback_notes }));
-    return { profile, pipe: new CompanionPipeline({ profile, feedback, llm }) };
+    // A remote model runs only if this consent allows it (scope_llm_cloud); otherwise offline.
+    return { profile, pipe: new CompanionPipeline({ profile, feedback, llm, consent }) };
   });
   const [said, setSaid] = useState("");
   const [listening, setListening] = useState(false);

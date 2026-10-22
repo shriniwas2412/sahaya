@@ -2,6 +2,14 @@
 // Elder-facing lines that are spoken live in the companion core.
 
 const en = {
+  modelDefault: "Default: the offline scripted companion. Free, no internet, nothing leaves the phone. The safety screen always runs on the phone before any model.",
+  modelWhatLeaves: "What is sent when an online model is on:",
+  modelStatus: {
+    off: "Off. Sahaya uses the offline companion.",
+    incomplete: "Not used yet: add the model name (and a key for Groq or OpenRouter).",
+    needs_consent: "Not used: turn on \"Online conversation model\" consent in Profile first. Until then Sahaya stays offline.",
+    on: "On. Replies may come from this model; the safety screen still runs first on the phone.",
+  } as Record<string, string>,
   dataTitle: "Your data",
   dataHint: "Everything Sahaya keeps is listed here. You can take a copy or erase it.",
   exportAll: "Export all (JSON file)",
@@ -154,6 +162,14 @@ type Dict = typeof en;
 
 const hi: Dict = {
   ...en,
+  modelDefault: "पहले से: ऑफ़लाइन लिखी हुई बातचीत। मुफ़्त, बिना इंटरनेट, फ़ोन से कुछ बाहर नहीं जाता। सुरक्षा जाँच हमेशा फ़ोन पर, किसी भी मॉडल से पहले चलती है।",
+  modelWhatLeaves: "ऑनलाइन मॉडल चालू होने पर क्या भेजा जाता है:",
+  modelStatus: {
+    off: "बंद। सहाया ऑफ़लाइन बातचीत चलाता है।",
+    incomplete: "अभी इस्तेमाल नहीं: मॉडल का नाम लिखें (Groq या OpenRouter के लिए key भी)।",
+    needs_consent: "इस्तेमाल नहीं: पहले प्रोफ़ाइल में \"ऑनलाइन बातचीत मॉडल\" की सहमति चालू करें। तब तक सहाया ऑफ़लाइन रहेगा।",
+    on: "चालू। जवाब इस मॉडल से आ सकते हैं; सुरक्षा जाँच फिर भी पहले फ़ोन पर चलती है।",
+  },
   dataTitle: "आपका डेटा",
   dataHint: "सहाया जो कुछ रखता है, सब यहाँ है। आप उसकी कॉपी ले सकते हैं या मिटा सकते हैं।",
   exportAll: "सब कुछ निकालें (JSON फ़ाइल)",

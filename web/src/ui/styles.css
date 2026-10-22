@@ -219,3 +219,6 @@ main.elder > .help { position: static; flex: 0 0 auto; }
 /* Delete all */
 .danger-zone { border-left: 4px solid var(--danger); padding: 4px 0 4px 14px; }
 .danger-zone h3 { color: var(--danger); }
+.model-status { font-weight: 600; margin: 0; }
+.model-status.needs_consent, .model-status.incomplete { color: var(--warn); }
+.model-status.on { color: var(--ok); }

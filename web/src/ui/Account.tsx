@@ -3,7 +3,8 @@ import { useApp } from "./App.tsx";
 import { me, signIn, signUp, signOut, enablePush, type Me } from "./api.ts";
 import { syncOnce, httpPost } from "../data/syncClient.ts";
 import { WebSpeechProvider, speechLocale, type SpeechCapabilities } from "../core/speech/index.ts";
-import type { LlmSettings } from "./llmSettings.ts";
+import { modelStatus, type LlmSettings } from "./llmSettings.ts";
+import { REMOTE_MODEL_DISCLOSURE } from "../core/companion/index.ts";
 import { DataRights } from "./DataRights.tsx";
 
 export function Account() {
@@ -14,16 +15,18 @@ export function Account() {
   const [msg, setMsg] = useState("");
   const [caps, setCaps] = useState<SpeechCapabilities | null>(null);
   const [llm, setLlm] = useState<LlmSettings>({ provider: "none", model: "" });
+  const [consent, setConsent] = useState<{ scope_llm_cloud?: 0 | 1 } | null>(null);
 
   useEffect(() => { me().then(setUser).catch(() => setUser(null)); }, []);
   useEffect(() => {
     (async () => {
-      const consent = (await repo.list<{ subject_id: string; recorded_at: string; scope_audio_cloud: 0 | 1 }>("consent"))
+      const consent = (await repo.list<{ subject_id: string; recorded_at: string; scope_audio_cloud: 0 | 1; scope_llm_cloud?: 0 | 1 }>("consent"))
         .filter((c) => c.subject_id === data.elder?.id).sort((a, b) => b.recorded_at.localeCompare(a.recorded_at))[0];
+      setConsent(consent ?? null);
       setCaps(await new WebSpeechProvider({ consent: consent ?? null }).capabilities(speechLocale(data.elder?.language)).catch(() => null));
       setLlm((await repo.backend.getMeta<LlmSettings>("llm")) ?? { provider: "none", model: "" });
     })();
-  }, [repo, data.elder?.id]);
+  }, [repo, data.elder?.id, data.consentVersion]);
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -83,9 +86,8 @@ export function Account() {
       </section>
       <section class="card stack">
         <h2>{lang === "hi" ? "बातचीत का मॉडल (ज़रूरी नहीं)" : "Conversation model (optional)"}</h2>
-        <p class="small muted">{lang === "hi"
-          ? "पहले से: ऑफ़लाइन लिखी हुई बातचीत, बिना इंटरनेट, मुफ़्त। अपनी Groq या OpenRouter key डालें तो वह इसी फ़ोन पर रहती है। सुरक्षा जाँच हमेशा मॉडल से पहले चलती है।"
-          : "Default: the offline scripted companion, free, no internet. A Groq or OpenRouter key you enter stays on this phone. The safety screen always runs before any model."}</p>
+        <p class="small muted">{t.modelDefault}</p>
+        <div class="card soft small" role="note"><strong>{t.modelWhatLeaves}</strong> {REMOTE_MODEL_DISCLOSURE[lang]}</div>
         <div class="field"><label for="lp">{lang === "hi" ? "प्रदाता" : "Provider"}</label>
           <select id="lp" value={llm.provider} onChange={(e) => setLlm({ ...llm, provider: e.currentTarget.value as LlmSettings["provider"] })}>
             <option value="none">{lang === "hi" ? "कोई नहीं (ऑफ़लाइन)" : "None (offline)"}</option>
@@ -99,6 +101,7 @@ export function Account() {
               : <div class="field"><label for="lk">API key</label><input id="lk" type="password" autocomplete="off" value={llm.apiKey ?? ""} onInput={(e) => setLlm({ ...llm, apiKey: e.currentTarget.value })} /></div>}
           </>
         )}
+        <p class={`small model-status ${modelStatus(llm, consent)}`} role="status">{t.modelStatus[modelStatus(llm, consent)]}</p>
         <button onClick={async () => { await repo.backend.setMeta("llm", llm); setMsg(t.saved); }}>{t.save}</button>
       </section>
       <DataRights />
