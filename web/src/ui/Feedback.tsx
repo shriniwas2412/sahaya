@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 import { useApp, type SessionRow } from "./App.tsx";
+import { Icon } from "./icons.tsx";
 
 const FACES = ["😣", "🙁", "😐", "🙂", "😄"];
 
@@ -31,17 +32,17 @@ export function Feedback({ sessionId }: { sessionId: string }) {
       <p class="muted">{t.fbHint}</p>
       <div class="faces" role="radiogroup" aria-label={t.fbTitle(data.elder?.display_name ?? "")}>
         {FACES.map((f, i) => (
-          <button type="button" role="radio" aria-checked={mood === i + 1} aria-pressed={mood === i + 1} aria-label={t.moods[i]} onClick={() => setMood(i + 1)}>{f}</button>
+          <button type="button" role="radio" aria-checked={mood === i + 1} aria-label={t.moods[i]} onClick={() => setMood(i + 1)}>{f}</button>
         ))}
       </div>
       {mood && <p class="small muted" aria-live="polite">{t.moods[mood - 1]}</p>}
       <fieldset class="card">
         <legend><strong>{t.fbKeep}</strong></legend>
-        <div class="chips">{topics.map((k) => <button type="button" class="chip" aria-pressed={keep.includes(k)} onClick={() => toggle(keep, setKeep, k, avoid, setAvoid)}>{t.topic[k] ?? k}</button>)}</div>
+        <div class="chips keep">{topics.map((k) => <button type="button" class="chip" aria-pressed={keep.includes(k)} onClick={() => toggle(keep, setKeep, k, avoid, setAvoid)}>{keep.includes(k) && <Icon name="check" size={20} />}{t.topic[k] ?? k}</button>)}</div>
       </fieldset>
       <fieldset class="card">
         <legend><strong>{t.fbAvoid}</strong></legend>
-        <div class="chips">{topics.map((k) => <button type="button" class="chip" aria-pressed={avoid.includes(k)} onClick={() => toggle(avoid, setAvoid, k, keep, setKeep)}>{t.topic[k] ?? k}</button>)}</div>
+        <div class="chips avoid">{topics.map((k) => <button type="button" class="chip" aria-pressed={avoid.includes(k)} onClick={() => toggle(avoid, setAvoid, k, keep, setKeep)}>{avoid.includes(k) && <Icon name="cross" size={20} />}{t.topic[k] ?? k}</button>)}</div>
       </fieldset>
       <div class="field">
         <label for="fbn">{t.fbNotes} ({t.optional})</label>

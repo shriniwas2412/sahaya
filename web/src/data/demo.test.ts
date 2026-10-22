@@ -85,9 +85,9 @@ test("in demo mode call and WhatsApp links are previews, never opened", () => {
   assert.deepEqual(dialAction("tel:+919000000001", false), { kind: "open", href: "tel:+919000000001" });
   const tel = dialAction("tel:+919000000001", true);
   assert.equal(tel.kind, "preview");
-  assert.equal(tel.kind === "preview" && tel.label, "📞 +919000000001");
+  assert.equal(tel.kind === "preview" && tel.label, "+91 9XXXX XXX01 (demo)");
   const wa = dialAction("https://wa.me/919000000001?text=Hi", true);
-  assert.equal(wa.kind === "preview" && wa.label, "💬 wa.me/919000000001");
+  assert.equal(wa.kind === "preview" && wa.label, "wa.me/+91 9XXXX XXX01 (demo)");
 });
 
 test("listeners hear about demo load and clear after the flags are set", async () => {

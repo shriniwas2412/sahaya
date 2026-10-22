@@ -1,11 +1,13 @@
-// Locked elder mode. One calm screen: name, optional family photo, a big talk button,
-// a big Help button, "say again" and volume. Medicine reminders appear here when due.
-// Exit only by holding the top-right corner for 3 s, then the caregiver PIN.
+// Locked elder mode. One calm screen that never scrolls: the person's name, what they said
+// and Sahaya's reply, one main action (talk, picture answers or today's medicine), "say
+// again" and volume, and Help as a fixed footer. A small strip shows each turn passing
+// through listening → the safety check → the reply, and whether the reply was scripted.
+// Exit only by holding the top-right corner for 3 s (mouse, touch or keyboard), then the PIN.
 // A browser page cannot fully lock an Android phone; this holds what the browser allows.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useApp, type SessionRow } from "./App.tsx";
-import { CompanionPipeline, type TurnResult, type CallTarget, type LLMProvider } from "../core/companion/index.ts";
+import { CompanionPipeline, NO_ANSWER_MS, type TurnResult, type TurnTrace, type CallTarget, type LLMProvider } from "../core/companion/index.ts";
 import { WebSpeechProvider, speechLocale, type SpeechProvider } from "../core/speech/index.ts";
 import { toProfile, uiLang } from "../core/profile.ts";
 import { currentReminder, step, doseTimeLabel, DEFAULT_ESCALATE_MIN } from "../core/doses.ts";
@@ -16,30 +18,45 @@ import { notifyCaregiver } from "./api.ts";
 import { llmFromSettings, type LlmSettings } from "./llmSettings.ts";
 import { dialAction } from "../data/demo.ts";
 import { STRINGS } from "./i18n.ts";
+import { Icon, type IconName } from "./icons.tsx";
+import { greetingName, sentence, strip } from "./elderText.ts";
 
 const COPY = {
   hi: {
-    hello: (n: string) => `नमस्ते, ${n}`, talk: "बात करें", listening: "सुन रहा हूँ…", again: "फिर से सुनाएँ",
-    louder: "आवाज़ तेज़", softer: "आवाज़ धीमी", help: "मदद", yes: "हाँ, बुलाओ", no: "नहीं",
-    call: (w: string) => `${w} को फ़ोन`, wa: "व्हाट्सऐप", connected: "बात हो गई", unanswered: "फ़ोन नहीं उठा",
-    medTime: "दवाई का समय", taken: "ले ली", later: "थोड़ी देर में", close: "ठीक है",
+    hello: (n: string) => `नमस्ते, ${n}`, talk: "बात करें", listening: "सुन रहे हैं…", again: "फिर से सुनाएँ",
+    louder: "आवाज़ तेज़", softer: "आवाज़ धीमी", help: "मदद", yes: "हाँ, किसी को बुलाओ", no: "नहीं, ठीक हूँ",
+    call: (w: string) => `${w} को फ़ोन`, wa: "संदेश भेजें", connected: "बात हो गई", unanswered: "फ़ोन नहीं उठा",
+    autoNext: "अगर बात नहीं हुई, तो थोड़ी देर में अगला नंबर अपने-आप लगेगा।",
+    taken: "ले ली", later: "थोड़ी देर में", close: "ठीक है",
     tapYes: "हाँ", tapNo: "नहीं", tapSong: "गाना", tapStory: "कहानी", helpline: "हेल्पलाइन",
     noContacts: "पास में किसी को आवाज़ दीजिए, या 112 पर फ़ोन कीजिए।", pin: "पिन डालें", wrong: "गलत पिन",
-    holdHint: "देखभाल करने वाले: ऊपर दाएँ कोना 3 सेकंड दबाएँ",
+    locked: (s: number) => `बहुत बार गलत। ${s} सेकंड रुकें।`,
+    del: "मिटाएँ", ok: "ठीक", closePad: "बंद करें", dots: (n: number, of: number) => `${of} में से ${n} अंक`,
+    holdHint: "देखभाल करने वाले: ऊपर दाएँ गोला 3 सेकंड दबाएँ",
+    exitHint: "बाहर: गोला 3 सेकंड · पिन 1234",
+    youSaid: "आपने कहा:", steps: { listen: "सुन रहे हैं", safety: "सुरक्षा जांच", reply: "जवाब" },
+    notes: { ok: "ठीक", check: "ध्यान", emergency: "मदद", scripted: "ऑफ़लाइन", model: "मॉडल" },
   },
   en: {
     hello: (n: string) => `Hello, ${n}`, talk: "Talk", listening: "Listening…", again: "Say again",
-    louder: "Louder", softer: "Softer", help: "Help", yes: "Yes, call", no: "No",
-    call: (w: string) => `Call ${w}`, wa: "WhatsApp", connected: "We talked", unanswered: "No answer",
-    medTime: "Medicine time", taken: "Taken", later: "In a little while", close: "OK",
+    louder: "Louder", softer: "Softer", help: "Help", yes: "Yes, call someone", no: "No, I'm fine",
+    call: (w: string) => `Call ${w}`, wa: "Send a message", connected: "We talked", unanswered: "No answer",
+    autoNext: "If no one answered, the next number is called automatically in a moment.",
+    taken: "Taken", later: "In a little while", close: "OK",
     tapYes: "Yes", tapNo: "No", tapSong: "A song", tapStory: "A story", helpline: "Helpline",
     noContacts: "Please call out to someone nearby, or phone 112.", pin: "Enter PIN", wrong: "Wrong PIN",
-    holdHint: "Caregiver: hold the top-right corner for 3 s",
+    locked: (s: number) => `Too many tries. Wait ${s} s.`,
+    del: "Delete", ok: "OK", closePad: "Close", dots: (n: number, of: number) => `${n} of ${of} digits`,
+    holdHint: "Caregiver: hold the top-right circle for 3 seconds",
+    exitHint: "Exit: hold circle 3 s · PIN 1234",
+    youSaid: "You said:", steps: { listen: "Listening", safety: "Safety check", reply: "Reply" },
+    notes: { ok: "fine", check: "check", emergency: "help", scripted: "offline", model: "model" },
   },
 };
 
 // Text fed to the pipeline for each big button when listening is not available.
 const TAP_TEXT = { hi: { yes: "हाँ", no: "नहीं", song: "गाना सुनाओ", story: "कहानी सुनाओ" }, en: { yes: "yes", no: "no", song: "sing a song", story: "tell a story" } };
+const TAP_ICON: Record<keyof typeof TAP_TEXT.hi, IconName> = { yes: "check", no: "cross", song: "music", story: "book" };
 
 interface Consent { scope_audio_cloud: 0 | 1; scope_llm_cloud?: 0 | 1; subject_id: string; recorded_at: string; withdrawn_at?: string | null }
 type Target = { target: CallTarget; tel?: string; wa?: string };
@@ -83,13 +100,17 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm, consent }: 
     return { profile, pipe: new CompanionPipeline({ profile, feedback, llm, consent }) };
   });
   const [said, setSaid] = useState("");
+  const [trace, setTrace] = useState<TurnTrace | null>(null);
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [volume, setVolume] = useState(1);
   const [em, setEm] = useState<{ phase: string; targets: Target[]; text: string } | null>(null);
   const rate = useRef(0.85);
+  // Timers read the latest volume through a ref.
+  const vol = useRef(1);
+  vol.current = volume;
 
-  const say = (text: string) => { if (!text) return Promise.resolve(); setSaid(text); return speak(text, locale, rate.current, volume); };
+  const say = (text: string) => { if (!text) return Promise.resolve(); setSaid(text); return speak(text, locale, rate.current, vol.current); };
 
   async function logSafety(ev: { trigger: string; matched: string; action: string; at: string; resolvedBy?: string }) {
     await repo.save("safety_event", {
@@ -102,6 +123,7 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm, consent }: 
   async function handle(r: TurnResult | null) {
     if (!r) return;
     rate.current = r.rate;
+    if (r.trace) setTrace(r.trace);
     const targets: Target[] = [];
     for (const a of r.actions) {
       if (a.type === "log") await logSafety(a.event);
@@ -145,6 +167,22 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm, consent }: 
     };
   }, []);
 
+  // During a call, the elder does not have to report the result: after the phone app hands
+  // back (or 20 s without an answer), the next contact is tried automatically.
+  const calling = em?.phase === "calling";
+  const callTarget = em?.targets?.[0]?.target.phone;
+  useEffect(() => {
+    if (!calling) return;
+    let t = window.setTimeout(() => handle(pipe.callUnanswered()), NO_ANSWER_MS);
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      clearTimeout(t);
+      t = window.setTimeout(() => handle(pipe.callUnanswered()), NO_ANSWER_MS);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
+  }, [calling, callTarget]);
+
   async function heard(text: string) {
     if (!text || busy) return;
     setBusy(true);
@@ -173,7 +211,7 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm, consent }: 
   useEffect(() => {
     if (reminder && med && announced.current !== reminder.id) {
       announced.current = reminder.id;
-      say(`${c.medTime}. ${med.name}${med.instructions ? `, ${med.instructions}` : ""}.`);
+      say(sentence([doseTimeLabel(reminder.scheduled_at, 330, lang), med.name, med.instructions], lang));
     }
   }, [reminder?.id]);
   async function dose(kind: "take" | "snooze") {
@@ -188,6 +226,8 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm, consent }: 
   const timer = useRef<number | undefined>(undefined);
   const pressStart = () => { setPressing(true); timer.current = window.setTimeout(() => { setPressing(false); setAskPin(true); }, LONG_PRESS_MS); };
   const pressEnd = () => { setPressing(false); clearTimeout(timer.current); };
+  // The wrong-PIN lockout lives here, so closing the pad does not reset it.
+  const [tries, setTries] = useState<Tries>({ fails: 0, lockedUntil: 0 });
 
   async function unlocked() {
     if (pipe.emergencyPhase !== "idle" && pipe.emergencyPhase !== "done") await handle(pipe.resolveEmergency("caregiver"));
@@ -203,92 +243,129 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm, consent }: 
     setEm(null);
   }
 
+  const steps = strip(trace, listening);
+  const showDose = !!(reminder && med && !em);
   return (
-    <main class="elder" lang={lang} onPointerDown={onAnyTap}>
-      <button class={`corner${pressing ? " pressing" : ""}`} aria-label={c.holdHint}
-        onPointerDown={(e) => { e.stopPropagation(); pressStart(); }} onPointerUp={pressEnd} onPointerLeave={pressEnd} onPointerCancel={pressEnd}
-        onContextMenu={(e) => e.preventDefault()}>
-        <span class="ring" />
-      </button>
+    <main class={`elder${data.demo ? " demo" : ""}`} lang={lang} onPointerDown={onAnyTap}>
+      <div class="elder-top">
+        {data.demo && (
+          <p class="exit-hint"><span class="demo-pill">{STRINGS[lang].demoBanner}</span> {c.exitHint}</p>
+        )}
+        <button class={`corner${pressing ? " pressing" : ""}`} aria-label={c.holdHint}
+          onPointerDown={(e) => { e.stopPropagation(); pressStart(); }} onPointerUp={pressEnd} onPointerLeave={pressEnd} onPointerCancel={pressEnd}
+          onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) { e.preventDefault(); pressStart(); } }}
+          onKeyUp={(e) => { if (e.key === "Enter" || e.key === " ") pressEnd(); }}
+          onContextMenu={(e) => e.preventDefault()}>
+          <span class="ring" />
+        </button>
+      </div>
 
       <div class="elder-body">
-      {data.demo && <span class="demo-pill">{STRINGS[lang].demoBanner}</span>}
-      <h1 class="hello">{c.hello(profile.displayName)}</h1>
-      {photo && <img class="photo" src={photo} alt="" />}
-      <p class="said" aria-live="polite">{said}</p>
+        <h1 class="hello">{c.hello(greetingName(profile.displayName))}</h1>
+        {photo && !showDose && <img class="photo" src={photo} alt="" />}
 
-      <div class="grow">
-        {reminder && med && !em ? (
+        {showDose ? (
           <section class="dose" aria-labelledby="medh">
-            <h2 id="medh" style="font-size:var(--fs-elder);margin:0">{doseTimeLabel(reminder.scheduled_at, 330, lang)}</h2>
-            <p style="font-size:var(--fs-elder-xl);font-weight:700">{med.name}</p>
-            {med.instructions && <p>{med.instructions}</p>}
-            <button class="take" onClick={() => dose("take")}>✓ {c.taken}</button>
-            {reminder.status === "due" && <button class="later" onClick={() => dose("snooze")}>{c.later}</button>}
+            <h2 id="medh" class="dose-title">{doseTimeLabel(reminder!.scheduled_at, 330, lang)}</h2>
+            <p class="dose-name">{med!.name}</p>
+            {med!.instructions && <p>{med!.instructions}</p>}
+            <button class="take" onClick={() => dose("take")}><Icon name="check" /> {c.taken}</button>
+            {reminder!.status === "due" && <button class="later" onClick={() => dose("snooze")}>{c.later}</button>}
           </section>
-        ) : !stt ? (
-          <div class="grid2">
-            {(["yes", "no", "song", "story"] as const).map((k) => (
-              <button class="soft" disabled={busy} onClick={() => heard(TAP_TEXT[lang][k])}>{c[`tap${k[0].toUpperCase()}${k.slice(1)}` as "tapYes"]}</button>
-            ))}
-          </div>
         ) : (
-          <button class="talk" aria-pressed={listening} disabled={busy} onClick={talk}>{listening ? c.listening : `🎙 ${c.talk}`}</button>
+          <>
+            <div class="turn" aria-live="polite">
+              {trace?.heard && <p class="heard"><span>{c.youSaid}</span> {trace.heard}</p>}
+              <p class="said">{said}</p>
+            </div>
+            {(trace?.heard || listening) && (
+              <ol class="strip" aria-label={`${c.steps.listen} → ${c.steps.safety} → ${c.steps.reply}`}>
+                {steps.map((st) => (
+                  <li class={`${st.on ? "on" : ""}${st.active ? " active" : ""}${st.note ? ` n-${st.note}` : ""}`}>
+                    {c.steps[st.key]}{st.note && <span class="note"> · {c.notes[st.note]}</span>}
+                  </li>
+                ))}
+              </ol>
+            )}
+            <div class="main-action">
+              {!stt ? (
+                <div class="answers">
+                  {(["yes", "no", "song", "story"] as const).map((k) => (
+                    <button class="answer" disabled={busy} onClick={() => heard(TAP_TEXT[lang][k])}>
+                      <Icon name={TAP_ICON[k]} size={34} />
+                      <span>{c[`tap${k[0].toUpperCase()}${k.slice(1)}` as "tapYes"]}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button class="talk" aria-pressed={listening} disabled={busy} onClick={talk}>
+                  <Icon name="mic" size={40} /> {listening ? c.listening : c.talk}
+                </button>
+              )}
+            </div>
+            {data.demo && <DemoSay label={STRINGS[lang].demoType} send={STRINGS[lang].demoSend} onSay={heard} />}
+          </>
         )}
       </div>
 
-      {data.demo && <DemoSay label={STRINGS[lang].demoType} send={STRINGS[lang].demoSend} onSay={heard} />}
-      <div class="grid2">
-        <button class="soft" onClick={() => say(said)}>↻ {c.again}</button>
-        <button class="soft" onClick={() => setVolume(volume < 1 ? 1 : 0.6)}>{volume < 1 ? `🔊 ${c.louder}` : `🔉 ${c.softer}`}</button>
+      <div class="elder-controls">
+        <button class="soft" onClick={() => say(said)}><Icon name="replay" /> {c.again}</button>
+        <button class="soft" onClick={() => setVolume(volume < 1 ? 1 : 0.6)}>
+          <Icon name={volume < 1 ? "speakerUp" : "speakerDown"} /> {volume < 1 ? c.louder : c.softer}
+        </button>
       </div>
-      </div>
-      <button class="help" onClick={() => handle(pipe.help())}>🆘 {c.help}</button>
+      <button class="help" onClick={() => handle(pipe.help())}><Icon name="hand" size={34} /> {c.help}</button>
 
       {em && (
-        <div role="alertdialog" aria-modal="true" aria-labelledby="emh" class="elder" style="position:fixed;inset:0;z-index:20;overflow:auto">
-          <p id="emh" class="hello" style="font-size:var(--fs-elder)">{em.text}</p>
-          <div class="grow">
+        <div role="alertdialog" aria-modal="true" aria-labelledby="emh" class="overlay">
+          <div class="overlay-group">
+            {photo && em.phase === "asking" && <img class="photo" src={photo} alt="" />}
+            <p id="emh" class="em-text" tabIndex={-1} ref={(el) => el?.focus()}>{em.text}</p>
             {em.phase === "asking" && (
-              <div class="grid2">
-                <button class="help" style="position:static" onClick={() => heard(TAP_TEXT[lang].yes)}>{c.yes}</button>
+              <div class="stack-btns">
+                <button class="help big-yes" onClick={() => heard(TAP_TEXT[lang].yes)}><Icon name="phone" size={34} /> {c.yes}</button>
                 <button class="soft" onClick={() => heard(TAP_TEXT[lang].no)}>{c.no}</button>
               </div>
             )}
             {em.phase === "calling" && (
-              <>
+              <div class="stack-btns">
                 {data.demo && <p class="demo-note">{STRINGS[lang].demoNoDial}</p>}
-                {em.targets.map(({ target, tel, wa }) => (
-                  <>
-                    {tel && <CallLink href={tel} demo={data.demo} text={`📞 ${c.call(target.kind === "helpline" ? c.helpline : target.name)}`} />}
-                    {wa && <CallLink href={wa} demo={data.demo} text={`💬 ${c.wa}`} />}
-                  </>
-                ))}
+                {em.targets.map(({ target, tel, wa }) => {
+                  const who = target.kind === "helpline" ? c.helpline : target.name;
+                  return (
+                    <>
+                      {tel && <CallLink href={tel} demo={data.demo} icon="phone" text={c.call(who)} />}
+                      {wa && <CallLink href={wa} demo={data.demo} icon="chat" text={c.wa} />}
+                    </>
+                  );
+                })}
                 <div class="grid2">
-                  <button class="soft" onClick={() => handle(pipe.callConnected())}>✓ {c.connected}</button>
-                  <button class="soft" onClick={() => handle(pipe.callUnanswered())}>{c.unanswered} →</button>
+                  <button class="soft" onClick={() => handle(pipe.callConnected())}><Icon name="check" /> {c.connected}</button>
+                  <button class="soft" onClick={() => handle(pipe.callUnanswered())}>{c.unanswered}</button>
                 </div>
-              </>
+                <p class="auto-next">{c.autoNext}</p>
+              </div>
             )}
             {em.phase === "exhausted" && <p class="said">{c.noContacts}</p>}
+            {(em.phase === "done" || em.phase === "exhausted") && <button class="soft" onClick={closeEmergency}>{c.close}</button>}
           </div>
-          {(em.phase === "done" || em.phase === "exhausted") && <button class="soft" onClick={closeEmergency}>{c.close}</button>}
         </div>
       )}
 
-      {askPin && <PinPad lang={lang} onCancel={() => setAskPin(false)} onOk={unlocked} />}
+      {askPin && <PinPad lang={lang} tries={tries} setTries={setTries} onCancel={() => setAskPin(false)} onOk={unlocked} />}
     </main>
   );
 }
 
-/** A call/WhatsApp button. In demo mode it shows the link instead of opening it. */
-function CallLink({ href, demo, text }: { href: string; demo: boolean; text: string }) {
+/** A call/WhatsApp button. In demo mode it shows the (masked) link instead of opening it. */
+function CallLink({ href, demo, text, icon }: { href: string; demo: boolean; text: string; icon: IconName }) {
   const d = dialAction(href, demo);
-  const style = "font-size:var(--fs-elder);min-height:80px";
-  if (d.kind === "open") return <a class="btn call" href={d.href} target={href.startsWith("http") ? "_blank" : undefined} rel="noopener" style={style}>{text}</a>;
+  if (d.kind === "open") {
+    return <a class="btn call" href={d.href} target={href.startsWith("http") ? "_blank" : undefined} rel="noopener"><Icon name={icon} /> {text}</a>;
+  }
   return (
-    <div class="call preview" style={style} aria-label={`${text}: ${d.label}`}>
-      <span>{text}</span>
+    <div class="call preview" role="group" aria-label={`${text}: ${d.label}`}>
+      <span><Icon name={icon} /> {text}</span>
       <code>{d.label}</code>
     </div>
   );
@@ -299,7 +376,7 @@ function DemoSay({ label, send, onSay }: { label: string; send: string; onSay(t:
   const [v, setV] = useState("");
   return (
     <details class="demo-say" onPointerDown={(e) => e.stopPropagation()}>
-      <summary>⌨ {label}</summary>
+      <summary><Icon name="keyboard" /> {label}</summary>
       <form class="demo-say" onSubmit={(e) => { e.preventDefault(); if (v.trim()) { onSay(v.trim()); setV(""); } }}>
         <label for="demo-say" class="sr-only">{label}</label>
         <div class="row">
@@ -311,36 +388,46 @@ function DemoSay({ label, send, onSay }: { label: string; send: string; onSay(t:
   );
 }
 
-function PinPad({ lang, onOk, onCancel }: { lang: "hi" | "en"; onOk(): void; onCancel(): void }) {
+function PinPad({ lang, tries, setTries, onOk, onCancel }: {
+  lang: "hi" | "en"; tries: Tries; setTries(t: Tries): void; onOk(): void; onCancel(): void;
+}) {
   const { repo } = useApp();
   const c = COPY[lang];
   const [pin, setPin] = useState("");
-  const [tries, setTries] = useState<Tries>({ fails: 0, lockedUntil: 0 });
   const [msg, setMsg] = useState("");
+  const first = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    first.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   async function check(p: string) {
+    const now = Date.now();
+    if (isLocked(tries, now)) { setMsg(c.locked(Math.ceil((tries.lockedUntil - now) / 1000))); setPin(""); return; }
     const stored = await repo.backend.getMeta<string>("pin_hash");
-    if (isLocked(tries, Date.now())) { setMsg(c.wrong); setPin(""); return; }
     const ok = !!stored && (await verifyPin(p, stored));
-    setTries(afterAttempt(tries, ok, Date.now()));
-    if (ok) onOk(); else { setMsg(c.wrong); setPin(""); }
+    const next = afterAttempt(tries, ok, now);
+    setTries(next);
+    if (ok) onOk();
+    else { setMsg(isLocked(next, now) ? c.locked(Math.ceil((next.lockedUntil - now) / 1000)) : c.wrong); setPin(""); }
   }
-  const press = (d: string) => {
-    const p = (pin + d).slice(0, 6);
-    setPin(p);
-    setMsg("");
-  };
+  const press = (d: string) => { setPin((pin + d).slice(0, 6)); setMsg(""); };
+  const shown = Math.max(4, pin.length);
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="pinh" class="elder" style="position:fixed;inset:0;z-index:30;justify-content:center" onPointerDown={(e) => e.stopPropagation()}>
-      <h2 id="pinh" class="hello" style="font-size:var(--fs-elder)">{c.pin}</h2>
-      <div class="pindots" aria-label={`${pin.length}`}>{Array.from({ length: Math.max(4, pin.length) }, (_, i) => <span class={i < pin.length ? "on" : ""} />)}</div>
-      <p class="said" role="alert" style="min-height:1.5em">{msg}</p>
-      <div class="pinpad">
-        {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => <button class="soft" onClick={() => press(d)}>{d}</button>)}
-        <button class="soft" aria-label="⌫" onClick={() => setPin(pin.slice(0, -1))}>⌫</button>
-        <button class="soft" onClick={() => press("0")}>0</button>
-        <button class="soft" aria-label="OK" disabled={pin.length < 4} onClick={() => check(pin)}>✓</button>
+    <div role="dialog" aria-modal="true" aria-labelledby="pinh" class="overlay" onPointerDown={(e) => e.stopPropagation()}>
+      <div class="overlay-group">
+        <h2 id="pinh" class="em-text">{c.pin}</h2>
+        <div class="pindots" role="img" aria-label={c.dots(pin.length, shown)}>{Array.from({ length: shown }, (_, i) => <span class={i < pin.length ? "on" : ""} />)}</div>
+        <p class="said pin-msg" role="alert">{msg}</p>
+        <div class="pinpad">
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d, i) => <button class="soft" ref={i === 0 ? first : undefined} onClick={() => press(d)}>{d}</button>)}
+          <button class="soft" aria-label={c.del} onClick={() => setPin(pin.slice(0, -1))}><Icon name="backspace" /></button>
+          <button class="soft" onClick={() => press("0")}>0</button>
+          <button class="soft" aria-label={c.ok} disabled={pin.length < 4} onClick={() => check(pin)}><Icon name="check" /></button>
+        </div>
+        <button class="soft" aria-label={c.closePad} onClick={onCancel}><Icon name="close" /> {c.closePad}</button>
       </div>
-      <button class="soft" onClick={onCancel}>✕</button>
     </div>
   );
 }

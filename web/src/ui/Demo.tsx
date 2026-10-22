@@ -1,5 +1,5 @@
 // First-run welcome (set up, or try the demo) and the demo banner.
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { useApp } from "./App.tsx";
 import { LangToggle } from "./bits.tsx";
 import { loadDemo, clearDemo, DEMO_PIN } from "../data/demo.ts";
@@ -23,7 +23,25 @@ export function Welcome() {
         <p class="small muted">{t.tryDemoHint}</p>
       </section>
       <p class="small muted">{t.notMedical}</p>
+      <button class="ghost" style="width:fit-content" onClick={() => go({ name: "about" })}>{t.aboutLink}</button>
     </div>
+  );
+}
+
+/** F2: three steps that show the safety screen within a minute. Dismissible, demo only. */
+export function DemoGuide() {
+  const { repo, t, data } = useApp();
+  const [hidden, setHidden] = useState<boolean | null>(null);
+  useEffect(() => { repo.backend.getMeta<boolean>("demo_guide_hidden").then((h) => setHidden(h === true)); }, [repo]);
+  if (hidden !== false || !data.demo) return null;
+  return (
+    <section class="card guide stack" aria-labelledby="guide-h">
+      <h2 id="guide-h">{t.guideTitle}</h2>
+      <ol class="guide-steps">
+        {t.guideSteps.map((x) => <li>{x}</li>)}
+      </ol>
+      <button class="ghost" style="width:fit-content" onClick={() => { setHidden(true); repo.backend.setMeta("demo_guide_hidden", true); }}>{t.guideHide}</button>
+    </section>
   );
 }
 

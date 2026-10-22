@@ -10,6 +10,7 @@ import { Home } from "./Home.tsx";
 import { Elder } from "./Elder.tsx";
 import { Feedback } from "./Feedback.tsx";
 import { Welcome, DemoBanner } from "./Demo.tsx";
+import { About } from "./About.tsx";
 
 export interface SessionRow {
   id: string; elder_id: string; mode: "companion" | "memory_activity" | "paper";
@@ -36,7 +37,7 @@ export interface Data {
   consentVersion: string;
 }
 
-export type Route = { name: "welcome" } | { name: "setup"; edit: boolean } | { name: "home"; tab?: string } | { name: "elder"; sessionId: string } | { name: "feedback"; sessionId: string };
+export type Route = { name: "welcome" } | { name: "about" } | { name: "setup"; edit: boolean } | { name: "home"; tab?: string } | { name: "elder"; sessionId: string } | { name: "feedback"; sessionId: string };
 
 interface Ctx {
   repo: Repo;
@@ -105,11 +106,12 @@ export function App({ repo, initialLang }: { repo: Repo; initialLang: Lang }) {
 
   if (!data) return <div class="page" aria-busy="true" />;
   const ctx: Ctx = { repo, lang, t: STRINGS[lang], setLang, data, go: setRoute };
-  const r: Route = !data.elder && route.name !== "setup" ? { name: "welcome" } : route;
+  const r: Route = !data.elder && route.name !== "setup" && route.name !== "about" ? { name: "welcome" } : route;
   return (
     <AppCtx.Provider value={ctx}>
       {data.demo && r.name !== "elder" && <DemoBanner />}
       {r.name === "welcome" && <Welcome />}
+      {r.name === "about" && <About />}
       {r.name === "setup" && <Setup edit={r.edit} />}
       {r.name === "home" && <Home tab={r.tab} />}
       {r.name === "elder" && <Elder sessionId={r.sessionId} />}

@@ -17,7 +17,8 @@ export function Account() {
   const [llm, setLlm] = useState<LlmSettings>({ provider: "none", model: "" });
   const [consent, setConsent] = useState<{ scope_llm_cloud?: 0 | 1 } | null>(null);
 
-  useEffect(() => { me().then(setUser).catch(() => setUser(null)); }, []);
+  // Demo mode never contacts a server, not even to ask who is signed in.
+  useEffect(() => { if (!data.demo) me().then(setUser).catch(() => setUser(null)); }, [data.demo]);
   useEffect(() => {
     (async () => {
       const consent = (await repo.list<{ subject_id: string; recorded_at: string; scope_audio_cloud: 0 | 1; scope_llm_cloud?: 0 | 1 }>("consent"))

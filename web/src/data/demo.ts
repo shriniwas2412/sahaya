@@ -59,11 +59,11 @@ export async function loadDemo(repo: Repo, now: number = Date.now(), pinIteratio
     notes: "नमूना कहानी: शांति जी को रसोई में नई चीज़ें बनाना और रेडियो पर पुराने गाने सुनना अच्छा लगता था।",
   });
   await repo.save("medicine", {
-    id: "demo-med-1", elder_id: DEMO_ELDER_ID, name: "Demo Tablet A", dose: "1 (demo)", times: ["08:00", "20:00"],
+    id: "demo-med-1", elder_id: DEMO_ELDER_ID, name: "Demo Tablet A", dose: "1 गोली", times: ["08:00", "20:00"],
     instructions: "नाश्ते के बाद", escalate_after_min: 30, alert_user_id: null, active: 1,
   });
   await repo.save("medicine", {
-    id: "demo-med-2", elder_id: DEMO_ELDER_ID, name: "Demo Tablet B", dose: "1 (demo)", times: ["14:00"],
+    id: "demo-med-2", elder_id: DEMO_ELDER_ID, name: "Demo Tablet B", dose: "1 गोली", times: ["14:00"],
     instructions: "खाने के बाद", escalate_after_min: 30, alert_user_id: null, active: 1,
   });
 
@@ -159,8 +159,17 @@ export async function autoLoadDemo(repo: Repo, enabled = DEMO_BUILD): Promise<bo
  * the screen shows what would happen instead.
  */
 export type Dial = { kind: "open"; href: string } | { kind: "preview"; href: string; label: string };
+
+/** "+919000000001" -> "+91 9XXXX XXX01 (demo)": the demo numbers are fictional, and look it. */
+export function maskNumber(n: string): string {
+  const d = n.replace(/[^\d+]/g, "");
+  const tail = d.slice(-2);
+  return d.startsWith("+91") && d.length === 13 ? `+91 ${d[3]}XXXX XXX${tail} (demo)` : `${d.slice(0, 2)}${"X".repeat(Math.max(0, d.length - 4))}${tail} (demo)`;
+}
+
 export function dialAction(href: string, demo: boolean): Dial {
   if (!demo) return { kind: "open", href };
-  const label = href.startsWith("tel:") ? `📞 ${href.slice(4)}` : href.startsWith("https://wa.me/") ? `💬 wa.me/${href.slice(14).split("?")[0]}` : href;
-  return { kind: "preview", href, label };
+  if (href.startsWith("tel:")) return { kind: "preview", href, label: maskNumber(href.slice(4)) };
+  if (href.startsWith("https://wa.me/")) return { kind: "preview", href, label: `wa.me/${maskNumber("+" + href.slice(14).split("?")[0])}` };
+  return { kind: "preview", href, label: href };
 }

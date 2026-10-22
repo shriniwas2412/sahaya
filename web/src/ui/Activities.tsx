@@ -22,7 +22,7 @@ export function activityHistory(sessions: SessionRow[], scores: ActivityRow[]): 
 }
 
 export function Activities() {
-  const { t, data } = useApp();
+  const { t, lang, data } = useApp();
   const [running, setRunning] = useState(false);
   const history = activityHistory(data.sessions, data.activities);
   const fl = flags(history);
@@ -42,10 +42,10 @@ export function Activities() {
         {!!history.length && (
           <div style="overflow-x:auto">
             <table style="width:100%;border-collapse:collapse">
-              <thead><tr><th scope="col" style="text-align:left">📅</th>{SHOWN.map((d) => <th scope="col" style="text-align:right">{t.domain[d]}</th>)}</tr></thead>
+              <thead><tr><th scope="col" style="text-align:left">{t.dateCol}</th>{SHOWN.map((d) => <th scope="col" style="text-align:right">{t.domain[d]}</th>)}</tr></thead>
               <tbody>
                 {history.map((h) => (
-                  <tr style="border-top:1px solid var(--line)"><td>{h.date}</td>{SHOWN.map((d) => <td style="text-align:right">{h.scores[d] ?? "—"}{DOMAINS[d].max ? `/${DOMAINS[d].max}` : ""}</td>)}</tr>
+                  <tr style="border-top:1px solid var(--line)"><td>{new Date(`${h.date}T12:00:00Z`).toLocaleDateString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short" })}</td>{SHOWN.map((d) => <td style="text-align:right">{h.scores[d] ?? "—"}{DOMAINS[d].max ? `/${DOMAINS[d].max}` : ""}</td>)}</tr>
                 ))}
               </tbody>
             </table>

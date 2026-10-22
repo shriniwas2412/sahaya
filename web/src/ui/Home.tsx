@@ -11,7 +11,12 @@ import { waLink } from "../core/contacts.ts";
 import { ulid } from "../core/ids.ts";
 import { dialAction } from "../data/demo.ts";
 import { ConsentCard } from "./DataRights.tsx";
-import { describeSafety } from "./safetyText.ts";
+import { describeAction } from "./safetyText.ts";
+import { WeekCard } from "./WeekCard.tsx";
+import { DemoGuide } from "./Demo.tsx";
+import { groupIncidents } from "../core/summary.ts";
+import { greetingName } from "./elderText.ts";
+import { Icon } from "./icons.tsx";
 
 const FACES = ["😣", "🙁", "😐", "🙂", "😄"];
 
@@ -19,13 +24,17 @@ const TABS = ["today", "profile", "activities", "account"] as const;
 type Tab = (typeof TABS)[number];
 
 export function Home({ tab: initial }: { tab?: string }) {
-  const { t } = useApp();
+  const { t, go } = useApp();
   const [tab, setTab] = useState<Tab>((TABS as readonly string[]).includes(initial ?? "") ? (initial as Tab) : "today");
   const labels: Record<Tab, string> = { today: t.tabToday, profile: t.tabProfile, activities: t.tabActivities, account: t.tabAccount };
   return (
     <>
       <header class="topbar">
-        <div class="inner"><span class="brand">{t.appName}</span><LangToggle /></div>
+        <div class="inner">
+          <span class="brand">{t.appName}</span>
+          <button class="ghost" aria-label={t.aboutLink} onClick={() => go({ name: "about" })}><Icon name="info" size={24} /></button>
+          <LangToggle />
+        </div>
         <div class="tabs" role="tablist">
           {TABS.map((k) => (
             <button role="tab" id={`tab-${k}`} aria-controls={`panel-${k}`} aria-selected={tab === k} onClick={() => setTab(k)}>{labels[k]}</button>
@@ -68,10 +77,11 @@ function Today() {
   }
 
   const clock = (iso: string) => { const { h, m } = localClock(iso, IST_OFFSET_MIN); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
-  const recent = [...data.safety].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5);
+  const incidents = groupIncidents(data.safety).slice(0, 5);
   const sessions = [...data.sessions].sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? "")).filter((s) => s.mode === "companion").slice(0, 5);
   const lastMood = sessions.find((s) => s.feedback_mood)?.feedback_mood ?? null;
-  const when = (iso: string) => new Date(iso).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  // Hindi uses the 24-hour clock, so a Hindi month never sits next to an English "am".
+  const when = (iso: string) => new Date(iso).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: lang !== "hi" });
 
   return (
     <>
@@ -84,8 +94,10 @@ function Today() {
           {lastMood && <span class="mood" title={t.lastMood} aria-label={`${t.lastMood}: ${t.moods[lastMood - 1]}`}>{FACES[lastMood - 1]}</span>}
         </div>
         <button class="primary block big" onClick={startElder}>{t.startElder}</button>
-        {!elder.ngo_helpline && <p class="hint-warn" role="note">{t.helplineMissing}</p>}
+        {!elder.ngo_helpline && !data.demo && <p class="hint-warn" role="note">{t.helplineMissing}</p>}
       </section>
+
+      <DemoGuide />
 
       <section class="card">
         <h2>{t.todayDoses}</h2>
@@ -120,21 +132,29 @@ function Today() {
 
       <section class="card">
         <h2>{t.safetyTitle}</h2>
-        {!recent.length && <p class="muted">{t.noSafety}</p>}
+        {!incidents.length && <p class="muted">{t.noSafety}</p>}
         <ul class="list">
-          {recent.map((s) => (
-            <li>
-              <strong>{when(s.at)}</strong>
-              <span class="block-line">{describeSafety(t, s.trigger, s.action)}{s.trigger === "keyword" && s.matched ? ` · “${s.matched}”` : ""}</span>
-            </li>
-          ))}
+          {incidents.map((g) => {
+            const urgent = g.some((e) => e.trigger !== "missed_dose");
+            const resolved = g.some((e) => e.resolved_at || e.action === "connected" || e.action === "declined");
+            const said = g.find((e) => e.trigger === "keyword" && e.matched)?.matched;
+            return (
+              <li class={`incident${urgent ? " urgent" : ""}`}>
+                <strong>{when(g[0].at)}</strong>{said ? ` · “${said}”` : ""}
+                <span class="block-line">{t.safetyTrigger[g[0].trigger] ?? g[0].trigger} · {g.map((e) => describeAction(t, e.action)).join(" → ")}</span>
+                {resolved && <span class="badge taken">{t.resolved}</span>}
+              </li>
+            );
+          })}
         </ul>
       </section>
+
+      <WeekCard />
 
       <section class="card">
         <h2>{t.lastSessions}</h2>
         <ul class="list">
-          {!sessions.length && <p class="muted">—</p>}
+          {!sessions.length && <li class="muted">{t.noSessions}</li>}
           {sessions.map((s) => (
             <li class="row">
               <span class="grow">{when(s.started_at ?? "")}</span>
@@ -190,6 +210,7 @@ function Profile() {
           <input type="file" accept="image/*" class="sr-only" onChange={(ev) => pick(ev.currentTarget.files?.[0])} />
         </label>
       </section>
+      {data.demo && !e.ngo_helpline && <p class="card soft small" role="note">{t.demoHelplineNote}</p>}
       <ConsentCard />
     </>
   );

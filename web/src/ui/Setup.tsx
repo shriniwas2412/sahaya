@@ -236,8 +236,8 @@ export function Setup({ edit }: { edit: boolean }) {
             return (
               <fieldset class="card stack">
                 <legend><strong>{m.name || t.medName}</strong></legend>
-                <Field label={t.medName}><input value={m.name} onInput={(ev) => upd({ name: ev.currentTarget.value })} /></Field>
-                {shown && !m.name.trim() && <p class="err">{t.medName}</p>}
+                <Field label={t.medName}><input value={m.name} aria-invalid={shown && !m.name.trim()} aria-errormessage={`mn-${m.id}`} onInput={(ev) => upd({ name: ev.currentTarget.value })} /></Field>
+                {shown && !m.name.trim() && <p class="err" role="alert" id={`mn-${m.id}`}>{t.errMedName}</p>}
                 <Field label={`${t.dose} (${t.optional})`}><input value={m.dose ?? ""} onInput={(ev) => upd({ dose: ev.currentTarget.value || null })} /></Field>
                 <div>
                   <label>{t.times}</label>
@@ -250,7 +250,7 @@ export function Setup({ edit }: { edit: boolean }) {
                     ))}
                     <button type="button" onClick={() => upd({ times: [...m.times, "08:00"] })}>+ {t.addTime}</button>
                   </div>
-                  {shown && !m.times.length && <p class="err">{t.times}</p>}
+                  {shown && !m.times.length && <p class="err" role="alert">{t.errMedTimes}</p>}
                 </div>
                 <Field label={`${t.instructions} (${t.optional})`} hint={t.instructionsHint}><input value={m.instructions ?? ""} onInput={(ev) => upd({ instructions: ev.currentTarget.value || null })} /></Field>
                 <Field label={t.escalate}>
