@@ -5,6 +5,10 @@
 
 import { rowStamp, createClock, type Versioned } from "../../web/src/core/sync.ts";
 import { mergeRow } from "../../web/src/core/merge.ts";
+import { decode } from "../../web/src/core/sync.ts";
+
+/** A device clock may run ahead, but not by more than this (the same bound Kisan uses). */
+export const MAX_FUTURE_MS = 24 * 3_600_000;
 import type { D1Database } from "./env.ts";
 
 // Columns a client may write, per table. Anything else in a row is dropped.
@@ -50,17 +54,20 @@ async function loadRow(db: D1Database, table: string, id: string): Promise<{ row
 
 export interface PushResult { accepted: number; rejected: { table: string; id: string; reason: string }[] }
 
-export async function pushChanges(db: D1Database, owner: string, changes: Change[], now?: () => number): Promise<PushResult> {
+export async function pushChanges(db: D1Database, owner: string, changes: Change[], now?: () => number, trusted = false): Promise<PushResult> {
   const out: PushResult = { accepted: 0, rejected: [] };
   const clock = await serverClock(db, now);
   for (const c of changes.slice(0, 2000)) {
-    const cols = COLUMNS[c.table];
+    const cols = Object.hasOwn(COLUMNS, c.table) ? COLUMNS[c.table] : undefined;
     const id = c.row?.id;
     if (!cols || typeof id !== "string" || id.length > 200) { out.rejected.push({ table: String(c.table), id: String(id), reason: "unknown" }); continue; }
     const allowed = new Set([...cols, ...SYNCED]);
     const clean: Versioned = { id, _v: {} };
     for (const [k, v] of Object.entries(c.row)) if (allowed.has(k)) clean[k] = v;
     for (const [k, ts] of Object.entries(c.row._v ?? {})) if (allowed.has(k) && typeof ts === "string" && ts.length < 100) clean._v![k] = ts;
+    // A stamp far in the future would win every later merge and freeze the field.
+    const limit = (now ?? Date.now)() + MAX_FUTURE_MS;
+    if (!trusted && Object.values(clean._v!).some((ts) => !(decode(ts).wall <= limit))) { out.rejected.push({ table: c.table, id, reason: "future_stamp" }); continue; }
 
     const prev = await loadRow(db, c.table, id);
     if (prev && prev.owner !== owner) { out.rejected.push({ table: c.table, id, reason: "forbidden" }); continue; }
@@ -75,7 +82,7 @@ export async function pushChanges(db: D1Database, owner: string, changes: Change
       ]);
       out.accepted++;
     } catch (e) {
-      out.rejected.push({ table: c.table, id, reason: String((e as Error).message).slice(0, 120) });
+      out.rejected.push({ table: c.table, id, reason: /constraint/i.test(String((e as Error).message)) ? "invalid_row" : "error" });
     }
   }
   return out;
@@ -101,5 +108,6 @@ export async function serverWrite(db: D1Database, owner: string, table: string, 
   const ts = clock.tick();
   const v: Record<string, string> = { ...(prev?.row._v ?? {}) };
   for (const k of Object.keys(row)) if (k !== "id" && JSON.stringify(prev?.row[k]) !== JSON.stringify(row[k])) v[k] = ts;
-  await pushChanges(db, owner, [{ table, row: { ...(prev?.row ?? {}), ...row, id: row.id as string, _v: v } }], now === undefined ? undefined : () => now);
+  // The server's own writes are trusted: the device clock bound does not apply to them.
+  await pushChanges(db, owner, [{ table, row: { ...(prev?.row ?? {}), ...row, id: row.id as string, _v: v } }], now === undefined ? undefined : () => now, true);
 }

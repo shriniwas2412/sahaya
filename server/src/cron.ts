@@ -7,7 +7,7 @@
 
 import type { Env } from "./env.ts";
 import { planTick } from "../../web/src/core/doseTick.ts";
-import { step, missedDoseMessage, type DoseEvent, type Medicine } from "../../web/src/core/doses.ts";
+import { step, deadline, missedDoseMessage, DEFAULT_ESCALATE_MIN, type DoseEvent, type Medicine } from "../../web/src/core/doses.ts";
 import { ulid } from "../../web/src/core/ids.ts";
 import { serverWrite } from "./sync.ts";
 import { pushToUser } from "./app.ts";
@@ -56,6 +56,15 @@ export async function runCron(env: Env, now = Date.now(), f?: Fetch): Promise<Cr
       }, f);
       await serverWrite(env.DB, owner, "dose_event", { ...ev }, now);
     } else if (ev.status === "missed") {
+      // Trust the server's clock, not the phone's: no alert before the real deadline.
+      if (now < deadline(ev, Number(m.escalate_after_min ?? DEFAULT_ESCALATE_MIN))) continue;
+      // At most one alert per dose, whatever the merged status says later.
+      const sent = await env.DB.prepare("SELECT 1 AS x FROM dose_alert WHERE dose_id = ?").bind(ev.id).first();
+      if (sent) {
+        await serverWrite(env.DB, owner, "dose_event", { ...step(ev, { type: "escalated" }, now) }, now);
+        continue;
+      }
+      await env.DB.prepare("INSERT INTO dose_alert (dose_id, owner, at) VALUES (?, ?, ?)").bind(ev.id, owner, new Date(now).toISOString()).run();
       report.missed++;
       const text = missedDoseMessage(String(m.elder_name), String(m.name), ev.scheduled_at, tz, lang);
       report.pushes += await pushToUser(env, owner, { title: "Sahaya", body: text, tag: `missed:${ev.id}`, urgent: true }, f);

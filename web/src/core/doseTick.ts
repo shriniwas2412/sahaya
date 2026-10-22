@@ -23,6 +23,19 @@ export function planTick(meds: Medicine[], events: DoseEvent[], now: number, tzO
     if (!isOpen(e.status)) continue;
     const m = medById.get(e.medicine_id);
     if (!m) continue;
+    // A stopped medicine, or a time the caregiver removed, closes the dose that has not
+    // been missed yet; a real miss stays visible to the caregiver.
+    const time = e.id.slice(-5);
+    const stillScheduled = m.active !== false && m.active !== 0 && m.times.includes(time);
+    if (!stillScheduled) {
+      if (e.status === "pending" || e.status === "due" || e.status === "snoozed") {
+        const closed = { ...e, status: "skipped" as const, confirmed_by: "schedule_change", confirmed_at: new Date(now).toISOString(), snoozed_until: null };
+        const i = out.indexOf(e);
+        if (i >= 0) out[i] = closed;
+        else out.push(closed);
+      }
+      continue;
+    }
     const next = step(e, { type: "tick" }, now, m.escalate_after_min ?? DEFAULT_ESCALATE_MIN);
     if (next !== e) {
       const i = out.indexOf(e);

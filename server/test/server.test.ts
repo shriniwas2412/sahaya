@@ -89,6 +89,11 @@ const S = (wall: number, node = "dev1") => `${String(wall).padStart(15, "0")}:00
 const elderRow = (over: Record<string, unknown> = {}, ts = S(1)) =>
   stamp(null, { id: "e1", display_name: "Test Elder 1", gds_stage: 4, language: "hi-IN", preferences: ["bhajan"], family_contacts: [], persona_name: "Sahaya", ...over } as Versioned, ts);
 
+/** A consent row for an elder; scope_sync defaults to 1 (sync allowed). */
+const consentRow = (subject = "e1", over: Record<string, unknown> = {}, ts = S(1)) =>
+  stamp(null, { id: `c-${subject}`, subject_type: "elder", subject_id: subject, given_by: "guardian", method: "digital",
+    scope_store: 1, scope_sync: 1, recorded_at: "2026-10-01T00:00:00.000Z", ...over } as Versioned, ts);
+
 test("sync: push then pull returns the row with JSON columns intact", async () => {
   const e = env();
   const cookie = await signedUp(e);
@@ -206,4 +211,66 @@ test("sync: editing an elder that already has medicines works with foreign keys 
   assert.deepEqual(r.json.rejected, []);
   assert.equal(r.json.rows.find((x: { table: string }) => x.table === "elder").row.dialect, "Malwi");
   assert.ok(r.json.rows.some((x: { table: string }) => x.table === "medicine"));
+});
+
+// --- clock skew and repeated missed-dose alerts ---
+const fastStamp = (iso: string, minutesFast: number, node = "elderphone") => S(Date.parse(iso) + minutesFast * 60_000, node);
+
+async function elderWithMed(e: Env, cookie: string) {
+  const med = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"], escalate_after_min: 30, active: 1 } as Versioned, S(2));
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "consent", row: consentRow() }, { table: "elder", row: elderRow() }, { table: "medicine", row: med }] } });
+}
+
+test("sync rejects rows stamped more than 24 h in the future", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  const future = stamp(null, { id: "e9", display_name: "Test Elder 9" } as Versioned, S(Date.now() + 2 * 86_400_000, "fast"));
+  const r = await call(e, "/sync", { cookie, body: { rows: [{ table: "consent", row: consentRow("e9") }, { table: "elder", row: future }] } });
+  assert.deepEqual(r.json.rejected.map((x: { reason: string }) => x.reason), ["future_stamp"]);
+});
+
+/** A medicine scheduled 1 minute ago in IST, so real-time server stamps line up with the cron's clock. */
+function medDueNow() {
+  const now0 = Math.floor(Date.now() / 60_000) * 60_000;
+  const ist = new Date(now0 - 60_000 + 330 * 60_000);
+  const hhmm = ist.toISOString().slice(11, 16);
+  const day = ist.toISOString().slice(0, 10);
+  return { now0, hhmm, doseId: `dose:m1:${day}T${hhmm}`, scheduled: new Date(now0 - 60_000).toISOString() };
+}
+
+test("a fast phone's early 'missed' does not alert before the server's own deadline, and alerts exactly once", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  const { now0, hhmm, doseId, scheduled } = medDueNow();
+  const med = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: [hhmm], escalate_after_min: 30, active: 1 } as Versioned, S(2));
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "consent", row: consentRow() }, { table: "elder", row: elderRow() }, { table: "medicine", row: med }] } });
+  await runCron(e, now0);
+  // The elder phone is 23 h fast (inside the 24 h bound) and marks the dose missed right away.
+  const early = stamp(null, { id: doseId, medicine_id: "m1", scheduled_at: scheduled, status: "missed" } as Versioned, S(now0 + 23 * 3_600_000, "elderphone"));
+  const pushed = await call(e, "/sync", { cookie, body: { rows: [{ table: "dose_event", row: early }] } });
+  assert.deepEqual(pushed.json.rejected, []);
+  const MIN = 60_000;
+  const runs: number[] = [];
+  for (const m of [5, 10, 20, 31, 36, 41, 60]) runs.push((await runCron(e, now0 + m * MIN)).missed);
+  assert.deepEqual(runs, [0, 0, 0, 1, 0, 0, 0]); // deadline = scheduled + 30 min
+  const pull = await call(e, "/sync", { cookie, body: { rows: [] } });
+  assert.equal(pull.json.rows.filter((x: { row: { trigger?: string } }) => x.row.trigger === "missed_dose").length, 1);
+  assert.equal(pull.json.rows.find((x: { table: string }) => x.table === "dose_event").row.status, "escalated");
+});
+
+// --- stopped or rescheduled medicines (server side) ---
+test("cron: an inactive medicine gets no reminder; a moved time closes the old dose without an alert", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  const { now0, hhmm } = medDueNow();
+  const stopped = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: [hhmm], escalate_after_min: 30, active: 0 } as Versioned, S(2));
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "consent", row: consentRow() }, { table: "elder", row: elderRow() }, { table: "medicine", row: stopped }] } });
+  assert.deepEqual(await runCron(e, now0), { due: 0, missed: 0, pushes: 0 });
+  // Reactivate, let the dose fall due, then move it to another time.
+  const active = stamp(stopped, { ...stopped, active: 1 }, S(3));
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "medicine", row: active }] } });
+  assert.equal((await runCron(e, now0 + 60_000)).due, 1);
+  const moved = stamp(active, { ...active, times: ["23:59"] }, S(4));
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "medicine", row: moved }] } });
+  assert.deepEqual(await runCron(e, now0 + 45 * 60_000), { due: 0, missed: 0, pushes: 0 });
 });

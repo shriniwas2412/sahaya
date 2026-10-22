@@ -8,7 +8,7 @@ import { useApp, type SessionRow } from "./App.tsx";
 import { CompanionPipeline, type TurnResult, type CallTarget, type LLMProvider } from "../core/companion/index.ts";
 import { WebSpeechProvider, speechLocale, type SpeechProvider } from "../core/speech/index.ts";
 import { toProfile, uiLang } from "../core/profile.ts";
-import { currentReminder, step, DEFAULT_ESCALATE_MIN } from "../core/doses.ts";
+import { currentReminder, step, doseTimeLabel, DEFAULT_ESCALATE_MIN } from "../core/doses.ts";
 import { verifyPin, afterAttempt, isLocked, LONG_PRESS_MS, type Tries } from "../core/pin.ts";
 import { ulid } from "../core/ids.ts";
 import { speak, stopSpeaking } from "./voice.ts";
@@ -219,7 +219,7 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm }: {
       <div class="grow">
         {reminder && med && !em ? (
           <section class="dose" aria-labelledby="medh">
-            <h2 id="medh" style="font-size:var(--fs-elder);margin:0">{c.medTime}</h2>
+            <h2 id="medh" style="font-size:var(--fs-elder);margin:0">{doseTimeLabel(reminder.scheduled_at, 330, lang)}</h2>
             <p style="font-size:var(--fs-elder-xl);font-weight:700">{med.name}</p>
             {med.instructions && <p>{med.instructions}</p>}
             <button class="take" onClick={() => dose("take")}>✓ {c.taken}</button>

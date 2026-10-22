@@ -37,3 +37,12 @@ test("other tables are plain last-writer-wins", () => {
   const b = stamp(null, { id: "e1", status: "due" } as Versioned, S(2, "b"));
   assert.equal(mergeRow("elder", a, b).status, "due");
 });
+
+test("'escalated' beats a later 'missed' from a fast phone, in either merge order", () => {
+  const server = stamp(null, { ...base, status: "escalated", escalated_at: "2026-10-20T03:00:00.000Z" } as Versioned, S(10, "server"));
+  const phone = stamp(null, { ...base, status: "missed" } as Versioned, S(99, "phone"));
+  for (const m of [mergeRow("dose_event", server, phone), mergeRow("dose_event", phone, server)]) {
+    assert.equal(m.status, "escalated");
+    assert.equal(m.escalated_at, "2026-10-20T03:00:00.000Z");
+  }
+});

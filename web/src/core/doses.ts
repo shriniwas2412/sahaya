@@ -117,17 +117,31 @@ export function dosesForDay(med: Medicine, day: string, tzOffsetMin: number): Do
   }));
 }
 
-/** The dose to show on the elder screen right now: due first, then the earliest snoozed one that is over. */
-export function currentReminder(events: DoseEvent[]): DoseEvent | null {
-  const open = events.filter((e) => e.status === "due" || e.status === "missed" || e.status === "escalated");
-  open.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));
-  return open[0] ?? null;
+/**
+ * The dose to show on the elder screen right now: only today's (local day) doses that are
+ * due, newest first. Missed and escalated doses are for the caregiver's screen, not the
+ * elder's, so an old dose can never be taken late, or twice, from the elder screen.
+ */
+export function currentReminder(events: DoseEvent[], now: number = Date.now(), tzOffsetMin: number = 330): DoseEvent | null {
+  const day = (iso: string) => new Date(Date.parse(iso) + tzOffsetMin * MIN).toISOString().slice(0, 10);
+  const today = new Date(now + tzOffsetMin * MIN).toISOString().slice(0, 10);
+  const due = events.filter((e) => e.status === "due" && day(e.scheduled_at) === today && Date.parse(e.scheduled_at) <= now);
+  due.sort((a, b) => b.scheduled_at.localeCompare(a.scheduled_at));
+  return due[0] ?? null;
 }
 
 /** Local "8 baje" style label for a UTC ISO time. */
 export function localClock(iso: string, tzOffsetMin: number): { h: number; m: number } {
   const t = new Date(Date.parse(iso) + tzOffsetMin * MIN);
   return { h: t.getUTCHours(), m: t.getUTCMinutes() };
+}
+
+/** Card title for the elder: "8 बजे की दवाई" / "8 am medicine" (or "8:30 ..."). */
+export function doseTimeLabel(iso: string, tzOffsetMin: number, lang: "hi" | "en"): string {
+  const { h, m } = localClock(iso, tzOffsetMin);
+  const h12 = ((h + 11) % 12) + 1;
+  const mm = m ? `:${String(m).padStart(2, "0")}` : "";
+  return lang === "hi" ? `${h12}${mm} बजे की दवाई` : `${h12}${mm} ${h < 12 ? "am" : "pm"} medicine`;
 }
 
 /** Text for the caregiver alert. Says what was missed; gives no advice. */

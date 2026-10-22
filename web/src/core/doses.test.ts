@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { step, dosesForDay, localToUtcIso, doseId, currentReminder, missedDoseMessage, deadline, type DoseEvent, type Medicine } from "./doses.ts";
+import { step, dosesForDay, localToUtcIso, doseId, currentReminder, missedDoseMessage, deadline, doseTimeLabel, type DoseEvent, type Medicine } from "./doses.ts";
 
 const IST = 330;
 const MIN = 60_000;
@@ -92,15 +92,15 @@ test("dosesForDay: sorted, deduplicated, invalid times dropped, inactive gives n
   assert.deepEqual(dosesForDay({ ...med, active: 0 }, "2026-10-20", IST), []);
 });
 
-test("currentReminder picks the earliest open dose that needs attention", () => {
+test("currentReminder ignores taken and pending doses", () => {
+  const now = Date.parse("2026-10-20T14:40:00.000Z");
   const list = [
     ev({ id: "b", scheduled_at: "2026-10-20T14:30:00.000Z", status: "due" }),
-    ev({ id: "a", scheduled_at: "2026-10-20T02:30:00.000Z", status: "missed" }),
     ev({ id: "c", status: "taken" }),
     ev({ id: "d", status: "pending" }),
   ];
-  assert.equal(currentReminder(list)?.id, "a");
-  assert.equal(currentReminder([ev({ status: "taken" })]), null);
+  assert.equal(currentReminder(list, now, IST)?.id, "b");
+  assert.equal(currentReminder([ev({ status: "taken" })], now, IST), null);
 });
 
 test("missed-dose message names the time and gives no advice", () => {
@@ -109,4 +109,35 @@ test("missed-dose message names the time and gives no advice", () => {
   const en = missedDoseMessage("Test Elder 1", "Test Tablet A", "2026-10-20T14:45:00.000Z", IST, "en");
   assert.equal(en, "Test Elder 1 has not confirmed the 8:15 pm medicine (Test Tablet A). Please check in with them.");
   assert.doesNotMatch(hi + en, /dose|mg|double|extra|खुराक/i);
+});
+
+// --- the elder sees only today's due dose, never yesterday's missed one ---
+test("currentReminder: today's due dose wins over yesterday's escalated one", () => {
+  const now = Date.parse("2026-10-20T02:31:00.000Z"); // 08:01 IST on the 20th
+  const list = [
+    ev({ id: "dose:m1:2026-10-19T08:00", scheduled_at: "2026-10-19T02:30:00.000Z", status: "escalated" }),
+    ev({ id: "dose:m1:2026-10-20T08:00", scheduled_at: "2026-10-20T02:30:00.000Z", status: "due" }),
+  ];
+  assert.equal(currentReminder(list, now, IST)?.id, "dose:m1:2026-10-20T08:00");
+});
+
+test("currentReminder: missed, escalated and other days are never shown to the elder", () => {
+  const now = Date.parse("2026-10-20T03:30:00.000Z");
+  assert.equal(currentReminder([ev({ status: "missed", scheduled_at: "2026-10-20T02:30:00.000Z" })], now, IST), null);
+  assert.equal(currentReminder([ev({ status: "escalated", scheduled_at: "2026-10-20T02:30:00.000Z" })], now, IST), null);
+  assert.equal(currentReminder([ev({ status: "due", scheduled_at: "2026-10-19T14:30:00.000Z" })], now, IST), null);
+});
+
+test("currentReminder: of two due doses today, the newest is shown", () => {
+  const now = Date.parse("2026-10-20T09:00:00.000Z");
+  const list = [
+    ev({ id: "a", scheduled_at: "2026-10-20T02:30:00.000Z", status: "due" }),
+    ev({ id: "b", scheduled_at: "2026-10-20T08:30:00.000Z", status: "due" }),
+  ];
+  assert.equal(currentReminder(list, now, IST)?.id, "b");
+});
+
+test("the elder's dose card names the time", () => {
+  assert.equal(doseTimeLabel("2026-10-20T02:30:00.000Z", IST, "hi"), "8 बजे की दवाई");
+  assert.equal(doseTimeLabel("2026-10-20T15:00:00.000Z", IST, "en"), "8:30 pm medicine");
 });
