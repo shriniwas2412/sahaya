@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createApp, COOKIE } from "../src/app.ts";
-import { runCron } from "../src/cron.ts";
+import { runCron, MAX_PUSHES_PER_OWNER } from "../src/cron.ts";
 import { testDb } from "./d1.ts";
 import { hashPassword, verifyPassword } from "../src/lib/password.ts";
 import { signJwt, verifyJwt } from "../src/lib/jwt.ts";
@@ -166,13 +166,13 @@ test("cron: creates and marks a dose due, then escalates it once when unconfirme
   await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }, { table: "medicine", row: med }] } });
   const at = (iso: string) => Date.parse(iso);
   const r1 = await runCron(e, at("2026-10-20T02:35:00Z")); // 08:05 IST
-  assert.deepEqual(r1, { due: 1, missed: 0, pushes: 0 });
+  assert.deepEqual(r1, { due: 1, missed: 0, pushes: 0, skipped: 0 });
   const r2 = await runCron(e, at("2026-10-20T02:40:00Z"));
-  assert.deepEqual(r2, { due: 0, missed: 0, pushes: 0 });
+  assert.deepEqual(r2, { due: 0, missed: 0, pushes: 0, skipped: 0 });
   const r3 = await runCron(e, at("2026-10-20T03:05:00Z")); // 08:35 IST, past 30 min
-  assert.deepEqual(r3, { due: 0, missed: 1, pushes: 0 });
+  assert.deepEqual(r3, { due: 0, missed: 1, pushes: 0, skipped: 0 });
   const r4 = await runCron(e, at("2026-10-20T03:10:00Z"));
-  assert.deepEqual(r4, { due: 0, missed: 0, pushes: 0 });
+  assert.deepEqual(r4, { due: 0, missed: 0, pushes: 0, skipped: 0 });
   const pull = await call(e, "/sync", { cookie, body: { rows: [] } });
   const dose = pull.json.rows.find((x: { table: string }) => x.table === "dose_event").row;
   assert.equal(dose.status, "escalated");
@@ -189,7 +189,7 @@ test("cron: a dose the elder confirmed is never escalated", async () => {
   await runCron(e, Date.parse("2026-10-20T02:35:00Z"));
   const taken = stamp(null, { id: "dose:m1:2026-10-20T08:00", medicine_id: "m1", scheduled_at: "2026-10-20T02:30:00.000Z", status: "taken" } as Versioned, S(Date.parse("2026-10-20T02:36:00Z"), "elderphone"));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "dose_event", row: taken }] } });
-  assert.deepEqual(await runCron(e, Date.parse("2026-10-20T03:30:00Z")), { due: 0, missed: 0, pushes: 0 });
+  assert.deepEqual(await runCron(e, Date.parse("2026-10-20T03:30:00Z")), { due: 0, missed: 0, pushes: 0, skipped: 0 });
 });
 
 test("cron pushes to the caregiver's subscriptions and drops gone ones", async () => {
@@ -201,7 +201,7 @@ test("cron pushes to the caregiver's subscriptions and drops gone ones", async (
   const e = env({ VAPID_PUBLIC_KEY: pub, VAPID_PRIVATE_KEY: priv, VAPID_SUBJECT: "mailto:test@example.test" });
   const cookie = await signedUp(e);
   await consented(e, cookie);
-  for (const endpoint of ["https://push.example.test/ok", "https://push.example.test/gone"]) {
+  for (const endpoint of ["https://fcm.googleapis.com/fcm/send/ok", "https://fcm.googleapis.com/fcm/send/gone"]) {
     assert.equal((await call(e, "/push/subscribe", { cookie, body: { endpoint, keys: { p256dh, auth: b64url(crypto.getRandomValues(new Uint8Array(16))) } } })).status, 201);
   }
   const med = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"], active: 1 } as Versioned, S(2));
@@ -211,7 +211,7 @@ test("cron pushes to the caregiver's subscriptions and drops gone ones", async (
   assert.equal(r.pushes, 1);
   assert.equal(hits.length, 2);
   const left = await e.DB.prepare("SELECT endpoint FROM push_sub").all<{ endpoint: string }>();
-  assert.deepEqual(left.results.map((x) => x.endpoint), ["https://push.example.test/ok"]);
+  assert.deepEqual(left.results.map((x) => x.endpoint), ["https://fcm.googleapis.com/fcm/send/ok"]);
 });
 
 test("sync: editing an elder that already has medicines works with foreign keys on", async () => {
@@ -279,14 +279,14 @@ test("cron: an inactive medicine gets no reminder; a moved time closes the old d
   const { now0, hhmm } = medDueNow();
   const stopped = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: [hhmm], escalate_after_min: 30, active: 0 } as Versioned, S(2));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "consent", row: consentRow() }, { table: "elder", row: elderRow() }, { table: "medicine", row: stopped }] } });
-  assert.deepEqual(await runCron(e, now0), { due: 0, missed: 0, pushes: 0 });
+  assert.deepEqual(await runCron(e, now0), { due: 0, missed: 0, pushes: 0, skipped: 0 });
   // Reactivate, let the dose fall due, then move it to another time.
   const active = stamp(stopped, { ...stopped, active: 1 }, S(3));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "medicine", row: active }] } });
   assert.equal((await runCron(e, now0 + 60_000)).due, 1);
   const moved = stamp(active, { ...active, times: ["23:59"] }, S(4));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "medicine", row: moved }] } });
-  assert.deepEqual(await runCron(e, now0 + 45 * 60_000), { due: 0, missed: 0, pushes: 0 });
+  assert.deepEqual(await runCron(e, now0 + 45 * 60_000), { due: 0, missed: 0, pushes: 0, skipped: 0 });
 });
 
 // --- consent scope_sync is enforced on the server ---
@@ -327,4 +327,87 @@ test("sync: a child row pointing at another account's elder is refused", async (
   const med = stamp(null, { id: "mB", elder_id: "e1", name: "Test Tablet B", times: ["08:00"] } as Versioned, S(2));
   const r = await call(e, "/sync", { cookie: b, body: { rows: [{ table: "medicine", row: med }] } });
   assert.deepEqual(r.json.rejected.map((x: { reason: string }) => x.reason), ["no_sync_consent"]);
+});
+
+// --- rate limits on login and register ---
+test("login: after 5 wrong passwords for one email, even the right one gets 429 for a while", async () => {
+  const e = env();
+  await signedUp(e);
+  for (let i = 0; i < 5; i++) assert.equal((await call(e, "/auth/login", { body: { email: "caregiver1@example.test", password: "wrong horse 1" } })).status, 401);
+  const locked = await call(e, "/auth/login", { body: { email: "caregiver1@example.test", password: "correct horse 1" } });
+  assert.equal(locked.status, 429);
+  assert.deepEqual(locked.json, { error: "too_many" });
+});
+
+test("register: one IP can create at most 5 accounts an hour", async () => {
+  const e = env();
+  const reg = (i: number) => app.request("/api/auth/register", {
+    method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.7" },
+    body: JSON.stringify({ name: "T", email: `t${i}@example.test`, password: "correct horse 1" }),
+  }, e);
+  const codes = [];
+  for (let i = 0; i < 6; i++) codes.push((await reg(i)).status);
+  assert.deepEqual(codes, [201, 201, 201, 201, 201, 429]);
+});
+
+test("rate-limit rows store no raw email or IP", async () => {
+  const e = env();
+  await call(e, "/auth/login", { body: { email: "someone@example.test", password: "wrong horse 1" } });
+  const rows = (await e.DB.prepare("SELECT key FROM auth_attempt").all<{ key: string }>()).results.map((r) => r.key).join(" ");
+  assert.doesNotMatch(rows, /someone|example/);
+});
+
+// --- push subscription limits ---
+const sub = (endpoint: string, p256dh = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4") =>
+  ({ endpoint, keys: { p256dh, auth: "BTBZMqHH6r4Tts7J_aSIgg" } });
+
+test("push/subscribe accepts only known push services", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  assert.equal((await call(e, "/push/subscribe", { cookie, body: sub("https://evil.example.test/x") })).status, 400);
+  assert.equal((await call(e, "/push/subscribe", { cookie, body: sub("https://fcm.googleapis.com/fcm/send/abc") })).status, 201);
+  assert.equal((await call(e, "/push/subscribe", { cookie, body: sub("https://web.push.apple.com/abc") })).status, 201);
+  assert.equal((await call(e, "/push/subscribe", { cookie, body: sub("https://push.apple.com.evil.test/abc") })).status, 400);
+});
+
+test("push/subscribe keeps at most 5 subscriptions per account (newest win)", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  for (let i = 0; i < 8; i++) await call(e, "/push/subscribe", { cookie, body: sub(`https://fcm.googleapis.com/fcm/send/${i}`) });
+  const left = (await e.DB.prepare("SELECT endpoint FROM push_sub").all<{ endpoint: string }>()).results.map((r) => r.endpoint.slice(-1)).sort();
+  assert.deepEqual(left, ["3", "4", "5", "6", "7"]);
+});
+
+test("/notify is limited to 10 calls an hour per account", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  await consented(e, cookie);
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }] } });
+  const codes = [];
+  for (let i = 0; i < 11; i++) codes.push((await call(e, "/notify", { cookie, body: { elder_id: "e1", text: "Test" } })).status);
+  assert.deepEqual(codes.slice(9), [200, 429]);
+});
+
+test("cron spends its push budget fairly: one account with many due doses cannot starve another", async () => {
+  const kp = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])) as CryptoKeyPair;
+  const pub = b64url(await crypto.subtle.exportKey("raw", kp.publicKey));
+  const priv = (await crypto.subtle.exportKey("jwk", kp.privateKey)).d!;
+  const ua = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
+  const p256dh = b64url(await crypto.subtle.exportKey("raw", ua.publicKey));
+  const e = env({ VAPID_PUBLIC_KEY: pub, VAPID_PRIVATE_KEY: priv, VAPID_SUBJECT: "mailto:test@example.test" });
+  const { now0, hhmm } = medDueNow();
+  const setup = async (email: string, elder: string, meds: number) => {
+    const cookie = await signedUp(e, email);
+    await call(e, "/push/subscribe", { cookie, body: { endpoint: `https://fcm.googleapis.com/fcm/send/${email}`, keys: { p256dh, auth: b64url(crypto.getRandomValues(new Uint8Array(16))) } } });
+    const rows = [{ table: "consent", row: consentRow(elder) }, { table: "elder", row: elderRow({ id: elder }) }];
+    for (let i = 0; i < meds; i++) rows.push({ table: "medicine", row: stamp(null, { id: `${elder}-m${i}`, elder_id: elder, name: `Test Tablet ${i}`, times: [hhmm], active: 1 } as Versioned, S(2)) });
+    await call(e, "/sync", { cookie, body: { rows } });
+  };
+  await setup("noisy@example.test", "eN", 30);
+  await setup("quiet@example.test", "eQ", 1);
+  const hits: string[] = [];
+  const r = await runCron(e, now0, async (url) => { hits.push(url); return { status: 201 }; });
+  assert.ok(hits.some((u) => u.endsWith("quiet@example.test")), "the quiet account still gets its reminder");
+  assert.ok(hits.filter((u) => u.endsWith("noisy@example.test")).length <= MAX_PUSHES_PER_OWNER);
+  assert.ok(r.skipped > 0);
 });

@@ -10,16 +10,32 @@ import { planTick } from "../../web/src/core/doseTick.ts";
 import { step, deadline, missedDoseMessage, DEFAULT_ESCALATE_MIN, type DoseEvent, type Medicine } from "../../web/src/core/doses.ts";
 import { ulid } from "../../web/src/core/ids.ts";
 import { serverWrite } from "./sync.ts";
+import { prune } from "./lib/rateLimit.ts";
 import { pushToUser } from "./app.ts";
 import type { Fetch } from "./lib/webpush.ts";
 
 const parse = <T>(s: unknown, d: T): T => { try { return typeof s === "string" ? JSON.parse(s) : d; } catch { return d; } };
 
-export interface CronReport { due: number; missed: number; pushes: number }
+export interface CronReport { due: number; missed: number; pushes: number; skipped: number }
+
+// Workers cap outbound requests per invocation, so the run has a push budget.
+// Each push call reaches at most MAX_SUBS_PER_USER devices.
+export const MAX_PUSH_CALLS_PER_RUN = 8;
+export const MAX_PUSHES_PER_OWNER = 3;
 
 export async function runCron(env: Env, now = Date.now(), f?: Fetch): Promise<CronReport> {
   const tz = Number(env.TZ_OFFSET_MIN ?? 330);
-  const report: CronReport = { due: 0, missed: 0, pushes: 0 };
+  const report: CronReport = { due: 0, missed: 0, pushes: 0, skipped: 0 };
+  let calls = 0;
+  const perOwner = new Map<string, number>();
+  /** True when this owner may get one more push in this run. */
+  const budget = (owner: string) => {
+    const n = perOwner.get(owner) ?? 0;
+    if (calls >= MAX_PUSH_CALLS_PER_RUN || n >= MAX_PUSHES_PER_OWNER) { report.skipped++; return false; }
+    calls++;
+    perOwner.set(owner, n + 1);
+    return true;
+  };
   const meds = (await env.DB.prepare(
     `SELECT m.*, e.display_name AS elder_name, e.language AS elder_lang, sm.owner AS owner
        FROM medicine m JOIN elder e ON e.id = m.elder_id JOIN sync_meta sm ON sm.tbl = 'medicine' AND sm.id = m.id
@@ -44,14 +60,23 @@ export async function runCron(env: Env, now = Date.now(), f?: Fetch): Promise<Cr
   // Doses a device already marked missed still need the caregiver alert.
   for (const o of open) if (o.status === "missed" && !changed.some((c) => c.id === o.id)) changed.push(o);
 
-  for (const ev of changed) {
+  // Missed-dose alerts first, then reminders; owners interleaved so no account starves another.
+  const ownerOf = (ev: DoseEvent) => String(byMed.get(ev.medicine_id)?.owner ?? "");
+  const queues = new Map<string, DoseEvent[]>();
+  for (const ev of [...changed].sort((a, b) => (a.status === "missed" ? 0 : 1) - (b.status === "missed" ? 0 : 1))) {
+    queues.set(ownerOf(ev), [...(queues.get(ownerOf(ev)) ?? []), ev]);
+  }
+  const ordered: DoseEvent[] = [];
+  while ([...queues.values()].some((q) => q.length)) for (const q of queues.values()) { const ev = q.shift(); if (ev) ordered.push(ev); }
+
+  for (const ev of ordered) {
     const m = byMed.get(ev.medicine_id);
     if (!m) continue;
     const owner = m.owner as string;
     const lang = String(m.elder_lang ?? "").startsWith("en") ? "en" : "hi";
     if (ev.status === "due") {
       report.due++;
-      report.pushes += await pushToUser(env, owner, {
+      if (budget(owner)) report.pushes += await pushToUser(env, owner, {
         title: lang === "hi" ? "दवाई का समय" : "Medicine time", body: `${m.elder_name}: ${m.name}`, tag: ev.id,
       }, f);
       await serverWrite(env.DB, owner, "dose_event", { ...ev }, now);
@@ -64,6 +89,7 @@ export async function runCron(env: Env, now = Date.now(), f?: Fetch): Promise<Cr
         await serverWrite(env.DB, owner, "dose_event", { ...step(ev, { type: "escalated" }, now) }, now);
         continue;
       }
+      if (!budget(owner)) continue; // retried on the next run
       await env.DB.prepare("INSERT INTO dose_alert (dose_id, owner, at) VALUES (?, ?, ?)").bind(ev.id, owner, new Date(now).toISOString()).run();
       report.missed++;
       const text = missedDoseMessage(String(m.elder_name), String(m.name), ev.scheduled_at, tz, lang);
@@ -77,5 +103,7 @@ export async function runCron(env: Env, now = Date.now(), f?: Fetch): Promise<Cr
       await serverWrite(env.DB, owner, "dose_event", { ...ev }, now);
     }
   }
+  if (report.skipped) console.warn(`cron: push budget reached, ${report.skipped} pushes left for the next run`);
+  await prune(env.DB, now);
   return report;
 }

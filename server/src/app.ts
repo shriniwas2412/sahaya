@@ -16,6 +16,20 @@ import { signJwt, verifyJwt, type Claims } from "./lib/jwt.ts";
 import { pushChanges, pullChanges } from "./sync.ts";
 import { sendPush, type PushSubscriptionJson } from "./lib/webpush.ts";
 import { ulid } from "../../web/src/core/ids.ts";
+import { LIMITS, limitKey, overLimit, record, clear } from "./lib/rateLimit.ts";
+
+const ipOf = (c: C) => c.req.header("cf-connecting-ip") ?? "unknown";
+const tooMany = (c: C) => c.json({ error: "too_many" }, 429);
+
+// Web Push services browsers actually use: anything else is refused.
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^updates\.push\.services\.mozilla\.com$/, /^([a-z0-9-]+\.)*push\.apple\.com$/, /^([a-z0-9-]+\.)*notify\.windows\.com$/];
+export const MAX_SUBS_PER_USER = 5;
+export function allowedPushEndpoint(endpoint: string): boolean {
+  try {
+    const u = new URL(endpoint);
+    return u.protocol === "https:" && !u.port && PUSH_HOSTS.some((re) => re.test(u.hostname));
+  } catch { return false; }
+}
 
 type Vars = { user: Claims };
 type C = Context<{ Bindings: Env; Variables: Vars }>;
@@ -50,6 +64,9 @@ export function createApp() {
     const b = await c.req.json<{ name?: string; email?: string; password?: string }>().catch(() => ({} as Record<string, string>));
     const name = String(b.name ?? "").trim().slice(0, 120);
     const email = String(b.email ?? "").trim().toLowerCase();
+    const ipKey = await limitKey(c.env.JWT_SECRET, "register-ip", ipOf(c));
+    if (await overLimit(c.env.DB, ipKey, LIMITS.registerPerIp)) return tooMany(c);
+    await record(c.env.DB, ipKey);
     if (!name || !EMAIL.test(email) || !validPassword(b.password)) return c.json({ error: "invalid" }, 400);
     const exists = await c.env.DB.prepare("SELECT id FROM app_user WHERE email = ?").bind(email).first();
     if (exists) return c.json({ error: "exists" }, 409);
@@ -65,11 +82,20 @@ export function createApp() {
   app.post("/auth/login", async (c) => {
     const b = await c.req.json<{ email?: string; password?: string }>().catch(() => ({} as Record<string, string>));
     const email = String(b.email ?? "").trim().toLowerCase();
+    // Checked before any password work, so a flood costs no PBKDF2 time.
+    const emailKey = await limitKey(c.env.JWT_SECRET, "login-email", email);
+    const ipKey = await limitKey(c.env.JWT_SECRET, "login-ip", ipOf(c));
+    if (await overLimit(c.env.DB, emailKey, LIMITS.loginFailPerEmail) || await overLimit(c.env.DB, ipKey, LIMITS.loginPerIp)) return tooMany(c);
+    await record(c.env.DB, ipKey);
     const u = await c.env.DB.prepare("SELECT id, name, email, role, password_hash FROM app_user WHERE email = ? AND deleted = 0")
       .bind(email).first<{ id: string; name: string; email: string; role: string; password_hash: string }>();
     // Same work and the same answer whether or not the email exists.
     const ok = await verifyPassword(String(b.password ?? ""), u?.password_hash ?? "pbkdf2_sha256$100000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-    if (!u || !ok) return c.json({ error: "credentials" }, 401);
+    if (!u || !ok) {
+      await record(c.env.DB, emailKey);
+      return c.json({ error: "credentials" }, 401);
+    }
+    await clear(c.env.DB, emailKey);
     await session(c, u);
     return c.json({ id: u.id, name: u.name, email: u.email, role: u.role });
   });
@@ -105,17 +131,26 @@ export function createApp() {
 
   app.post("/push/subscribe", async (c) => {
     const s = await c.req.json<PushSubscriptionJson>().catch(() => null);
-    if (!s || typeof s.endpoint !== "string" || !s.endpoint.startsWith("https://") || !s.keys?.p256dh || !s.keys?.auth) return c.json({ error: "invalid" }, 400);
+    if (!s || typeof s.endpoint !== "string" || !allowedPushEndpoint(s.endpoint) || s.endpoint.length > 1000
+      || typeof s.keys?.p256dh !== "string" || typeof s.keys?.auth !== "string" || s.keys.p256dh.length > 200 || s.keys.auth.length > 100) {
+      return c.json({ error: "invalid" }, 400);
+    }
     const user = c.get("user").sub;
     await c.env.DB.prepare("DELETE FROM push_sub WHERE endpoint = ?").bind(s.endpoint).run();
     await c.env.DB.prepare("INSERT INTO push_sub (id, user_id, endpoint, keys, created_at) VALUES (?, ?, ?, ?, ?)")
-      .bind(ulid(), user, s.endpoint, JSON.stringify(s.keys), new Date().toISOString()).run();
+      .bind(ulid(), user, s.endpoint, JSON.stringify({ p256dh: s.keys.p256dh, auth: s.keys.auth }), new Date().toISOString()).run();
+    // Keep only the newest few per account.
+    await c.env.DB.prepare(`DELETE FROM push_sub WHERE user_id = ? AND id NOT IN
+      (SELECT id FROM push_sub WHERE user_id = ? ORDER BY id DESC LIMIT ?)`).bind(user, user, MAX_SUBS_PER_USER).run();
     return c.json({ ok: true }, 201);
   });
 
   app.post("/notify", async (c) => {
     const b = await c.req.json<{ elder_id?: string; text?: string }>().catch(() => ({} as Record<string, string>));
     const owner = c.get("user").sub;
+    const nKey = await limitKey(c.env.JWT_SECRET, "notify-user", owner);
+    if (await overLimit(c.env.DB, nKey, LIMITS.notifyPerUser)) return tooMany(c);
+    await record(c.env.DB, nKey);
     const meta = await c.env.DB.prepare("SELECT owner FROM sync_meta WHERE tbl = 'elder' AND id = ?").bind(String(b.elder_id ?? "")).first<{ owner: string }>();
     if (!meta || meta.owner !== owner) return c.json({ error: "not found" }, 404);
     const sent = await pushToUser(c.env, owner, { title: "Sahaya", body: String(b.text ?? "").slice(0, 300), tag: `help:${b.elder_id}`, urgent: true });
