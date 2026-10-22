@@ -1,6 +1,6 @@
-# Build the web app in demo mode and publish it to GitHub Pages on every push to main.
-# No secrets: the hosted build runs fully in the browser on synthetic demo data.
-# One-time setup: repo Settings -> Pages -> Source: "GitHub Actions".
+# Test both packages, build the web app in demo mode, and publish it to GitHub Pages
+# on every push to main. No secrets: the hosted build runs fully in the browser on
+# synthetic demo data. One-time setup: repo Settings -> Pages -> Source: "GitHub Actions".
 name: Pages
 
 on:
@@ -8,10 +8,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege by default; only the deploy job gets the Pages token.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -20,19 +19,17 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+      - name: Server tests
+        working-directory: server
+        run: npm ci && npm test
+      - name: Web tests and demo build
+        working-directory: web
+        run: npm ci && npm test && npm run build
         env:
           VITE_DEMO: "1"
           VITE_BASE: /${{ github.event.repository.name }}/
@@ -43,6 +40,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
