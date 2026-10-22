@@ -2,16 +2,21 @@
 // and never touches the network, so it also works offline.
 //
 // Three inputs feed it:
-//  - text: keyword and phrase rules in English, Hindi (Devanagari and
-//    romanised), plus a few Marathi and Gujarati calls for help, and the
-//    caregiver's own words;
+//  - text: keyword and phrase rules in English and Hindi (Devanagari and
+//    romanised), a basic Marathi and Gujarati list, and the caregiver's own words;
 //  - silence: a stage-dependent timer driven by timestamps the caller passes in;
 //  - agitation: bursts of fast repeated taps.
 //
+// This is a hand-written list and will miss phrasings it has not seen; the Help
+// button and the silence checks are the backstop. Known phrasings are pinned
+// as fixtures in safety.test.ts.
+//
 // Bias: a missed emergency is worse than an extra "shall I call someone?",
-// so explicit emergency phrases are never cancelled by a nearby "nahi"/"not".
-// Only the softer "check" phrases (pain, fear, going home, feeling lost) honour
-// negation, so "dard nahi hai" does not start the flow.
+// so emergency phrases are never cancelled by a nearby "nahi"/"not". Only the
+// softer "check" phrases honour negation, and only a negation that belongs to
+// them: same clause, right next to the phrase, not "pata nahi" (don't know),
+// not a repeated "nahi nahi", and not one that negates a following verb
+// ("dard nahi ruk raha" = the pain is not stopping).
 
 import type { CustomDistressWord, Stage } from "./types.ts";
 import { styleStage } from "./types.ts";
@@ -19,8 +24,9 @@ import { styleStage } from "./types.ts";
 export type SafetyLevel = "none" | "check" | "emergency";
 export type SafetyTrigger = "keyword" | "silence" | "agitation";
 export type SafetyCategory =
-  | "help" | "fall" | "breathing" | "chest" | "faint" | "bleeding" | "self_harm"
-  | "pain" | "fear" | "home" | "lost" | "custom" | "silence" | "agitation";
+  | "help" | "fall" | "breathing" | "chest" | "faint" | "bleeding" | "self_harm" | "stroke"
+  | "pain" | "injury" | "dizzy" | "unwell" | "sick" | "fear" | "home" | "lost"
+  | "custom" | "silence" | "agitation";
 
 export interface SafetyResult {
   level: SafetyLevel;
@@ -40,46 +46,75 @@ interface Rule {
   negatable?: boolean;
 }
 
-// Normalised text: lower case, apostrophes removed ("can't" → "cant"),
-// every other non-letter replaced by one space.
+// Normalised text: NFC, lower case, apostrophes removed ("can't" → "cant"),
+// clause punctuation kept as "|", every other non-letter replaced by one space.
 const RULES: Rule[] = [
   // ---- emergency ----
   { category: "help", level: "emergency", patterns: [
     "help", "bacha+o+n?", "bacha+iy?e", "bacha lo", "madad", "madat",
     "मदद", "बचाओ", "बचाइए", "बचाइये", "बचा लो",
-    "मदत", "वाचवा", // Marathi
-    "મદદ", "બચાવો", // Gujarati
+    // someone, a doctor or an ambulance to be called
+    "(doctor|docter|daktar|dactor|ambulance|kisi|koi) (ko )?bula\\w*",
+    "(डॉक्टर|डाक्टर|एम्बुलेंस|एंबुलेंस|किसी|कोई) (को )?बुला\\S*",
+    "(call|get) (?:(?:a|an|the|my) )?(doctor|ambulance)",
+    "(112|108) (?:(?:ko|pe|par|को|पर) )?(call|phone|फ़ोन|फोन|bula\\w*|बुला\\S*|lagao|लगाओ|milao|मिलाओ|karo|करो)",
   ] },
   { category: "fall", level: "emergency", patterns: [
-    "gir (gaya|gayi|gai|gya|gyi|gaye|gayee|pada|padi|padaa|padee)",
+    "gir+ (gaya|gayi|gai|gya|gyi|gaye|gayee|pada|padi|padaa|padee)",
     "गिर (गया|गई|गयी|गए|गये|पड़ा|पड़ी|पडा|पडी)",
-    "i fell", "i (have|ve) fallen", "ive fallen", "fell down",
+    "fisa?l (gaya|gayi|gai|gya|gyi|gaye|gayee)", "फिसल (गया|गई|गयी|गए|गये)",
+    "uth nahi?n? pa\\w*", "उठ (नहीं|नही) पा\\S*",
+    "i fell", "i (have|ve) fallen", "ive fallen", "fell down", "i slipped", "slipped and fell",
+    "cant get up", "cannot get up", "can not get up",
   ] },
   { category: "breathing", level: "emergency", patterns: [
-    "saa?ns (nahi|nahin|nhi|na)", "saa?ns (lene|lena) (me|mein|main|mai) (taklif|takleef|dikkat|pareshani)", "saa?ns phool",
-    "सा[ँं]स (नहीं|ना)", "सा[ँं]स (लेने|लेना) में (तकलीफ|तकलीफ़|दिक्कत|परेशानी)", "सा[ँं]स फूल",
-    "cant breathe", "cannot breathe", "can not breathe", "not breathing", "short of breath", "breathless",
+    "saa?ns (nahi|nahin|nhi|na)", "saa?s (nahi|nahin|nhi) (aa (rahi|raha|rhi|rha)|le pa\\w*)",
+    "saa?ns (lene|lena) (me|mein|main|mai) (taklif|takleef|dikkat|pareshani)", "saa?ns phool",
+    "सा[ँं]स (नहीं|नही|ना)", "सास (नहीं|नही) (आ (रही|रहा)|ले पा\\S*)",
+    "सा[ँं]स (लेने|लेना) में (तकलीफ|तकलीफ़|दिक्कत|परेशानी)", "सा[ँं]स फूल",
+    "dam ghut\\w*", "दम घुट\\S*",
+    "cant breathe", "cannot breathe", "can not breathe", "not breathing", "short of breath", "breathless", "choking", "suffocat\\w*",
   ] },
   { category: "chest", level: "emergency", patterns: [
-    "(seen[ae]|chh?aa?ti) (me|mein|main|mai) dard", "(सीने|छाती) में दर्द", "chest pain", "heart attack",
+    "(seen[ae]|sine|chh?aa?ti|chest|dil) (me|mein|main|mai|mei) dard", "(सीने|छाती|दिल) में दर्द", "chest pain", "heart attack",
+  ] },
+  { category: "stroke", level: "emergency", patterns: [
+    "sunn", "सुन्न", "(munh|muh|mooh|मुंह|मुँह) (tedha|tedhaa|टेढ़ा|टेढा)", "numb", "face (is )?drooping", "slurred",
   ] },
   { category: "faint", level: "emergency", patterns: ["behosh", "बेहोश", "unconscious", "fainted", "passed out"] },
   { category: "bleeding", level: "emergency", patterns: ["kh?oon (beh|bah|nikal)", "खून (बह|निकल)", "bleeding"] },
   { category: "self_harm", level: "emergency", patterns: [
     "want to die", "kill myself", "end my life", "suicide", "dont want to live",
     "mar(na|ne|jana) chaht[aie]", "मर(ना|ने) चाहत\\S*", "मर जाना चाहत\\S*", "jaan de (dun|doon|du)", "आत्महत्या",
+    "jee?na nahi?n? chaht\\w*", "जीना (नहीं|नही) चाहत\\S*", "(zinda|jinda) nahi?n? rehna", "(ज़िंदा|जिंदा|ज़िन्दा|जिन्दा) (नहीं|नही) रहना",
+    "(ze|za|ja)h[ae]r", "(ज़|ज)हर", "khudkushi", "(ख़|ख)ुदकुशी",
+    "mar (jaunga|jaungi|jaun|jaoonga|jaoongi)", "मर (जाऊ|जाउ)\\S*",
   ] },
+  // Basic Marathi and Gujarati: common, certain words only. Needs native review.
+  { category: "fall", level: "emergency", patterns: ["पडलो", "पडले", "પડી (ગયો|ગઈ|ગયા)"] },
+  { category: "chest", level: "emergency", patterns: ["छातीत दुख\\S*", "છાતીમાં (દુખાવો|દુખે\\S*)"] },
+  { category: "help", level: "emergency", patterns: ["मदत", "वाचवा", "મદદ", "બચાવો"] },
+
   // ---- check ----
-  { category: "pain", level: "check", negatable: true, patterns: ["dard", "दर्द", "pain", "hurts", "hurting"] },
+  { category: "pain", level: "check", negatable: true, patterns: ["dard", "दर्द", "pain", "hurts", "hurting", "hurt"] },
+  // Marathi दुखतंय/दुखतोय, Hindi दुखता; Gujarati દુખાવો/દુખે. Basic, needs native review.
+  { category: "pain", level: "check", negatable: true, patterns: ["दुखत\\S*", "દુખાવો", "દુખે\\S*"] },
+  { category: "injury", level: "check", negatable: true, patterns: ["chot", "चोट", "injured"] },
+  { category: "dizzy", level: "check", negatable: true, patterns: ["chakk?ar", "चक्कर", "dizzy", "giddy"] },
+  { category: "sick", level: "check", negatable: true, patterns: ["ulti", "उल्टी", "vomit\\w*", "bukhar", "बुखार", "fever"] },
+  { category: "unwell", level: "check", patterns: [
+    "tabiy?at (kharab|theek nahi?n?|thik nahi?n?|theek nhi|thik nhi)", "(तबीयत|तबियत) (ख़राब|खराब|ठीक नहीं|ठीक नही)",
+    "dont feel well", "not feeling well", "feel (sick|unwell|ill)", "im sick", "i am sick", "unwell",
+  ] },
   { category: "fear", level: "check", negatable: true, patterns: [
-    "da+r+ (lag|lg)", "डर (लग|लगता)", "ghabra\\w*", "घबरा\\S*", "scared", "afraid", "frightened", "terrified",
+    "da+r+ (lag\\w*|lg\\w*)", "डर (लग\\S*)", "ghabra\\w*", "घबरा\\S*", "scared", "afraid", "frightened", "terrified",
   ] },
   { category: "home", level: "check", negatable: true, patterns: [
-    "ghar ja+na", "घर जाना", "want to go home", "take me home",
+    "ghar ja+na", "घर जाना", "ghar le cha?lo", "घर ले चलो", "want to go home", "take me home",
   ] },
   { category: "lost", level: "check", negatable: true, patterns: [
     "(main|mai|me|mein) (kahan|kahaan|kaha) (hoon|hu|hun|hoo)", "मैं कहा[ँं] हू[ँं]",
-    "where am i", "im lost", "i am lost", "lost my way", "rasta bhool", "रास्ता भूल",
+    "where am i", "dont know where i am", "do not know where i am", "im lost", "i am lost", "lost my way", "rasta bhool", "रास्ता भूल",
   ] },
   { category: "breathing", level: "check", patterns: ["saa?ns", "सा[ँं]स"] },
 ];
@@ -87,10 +122,18 @@ const RULES: Rule[] = [
 const L = "\\p{L}\\p{M}\\p{N}";
 const wrap = (src: string) => `(?<![${L}])(?:${src})(?![${L}])`;
 
-const COMPILED = RULES.map(r => ({ ...r, res: r.patterns.map(p => new RegExp(wrap(p), "gu")) }));
+// Patterns are NFC-normalised like the input, so nukta letters (ज़, ड़) match either way they are typed.
+const COMPILED = RULES.map(r => ({ ...r, res: r.patterns.map(p => new RegExp(wrap(p.normalize("NFC")), "gu")) }));
 
 const NEGATIONS = new Set(["nahi", "nahin", "nhi", "na", "mat", "no", "not", "never", "नहीं", "ना", "मत", "नही"]);
-const PARTICLES = new Set(["to", "toh", "bilkul", "koi", "ab", "तो", "बिलकुल", "बिल्कुल", "अब"]);
+/** Words that may sit between a negation and the phrase it negates ("not in pain", "koi dard nahi"). */
+const FILLERS = new Set(["in", "really", "very", "at", "all", "koi", "bilkul", "ab", "to", "toh", "bhi", "तो", "अब", "भी", "कोई", "बिलकुल", "बिल्कुल"]);
+/** Words that may sit between the phrase and a following negation ("dard to nahi", "pain is not"). */
+const AFTER_SKIP = new Set(["to", "toh", "bilkul", "koi", "ab", "is", "hai", "bhi", "तो", "अब", "है", "बिलकुल", "बिल्कुल", "भी"]);
+/** "pata nahi" / "nahi pata" / "don't know" is not a negation of the phrase. */
+const KNOW = new Set(["pata", "पता", "know", "maloom", "malum", "मालूम"]);
+/** A negation followed by one of these negates that verb: "dard nahi ruk raha", "pain is not going away". */
+const CONTINUING = /^(ruk|ja|jaa|jat|gay|kam|band|ghat|going|stop|better|getting|रुक|जा|गय|गई|कम|बंद|घट)/u;
 
 export function normalize(text: string): string {
   return String(text ?? "")
@@ -101,17 +144,45 @@ export function normalize(text: string): string {
     .trim();
 }
 
+/** Like normalize(), but clause punctuation becomes a "|" token so negation stays inside its clause. */
+function normalizeClauses(text: string): string {
+  return String(text ?? "")
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/['’`]/g, "")
+    .replace(/[,;:.!?।॥\n]+/gu, " | ")
+    .replace(/[^\p{L}\p{M}\p{N}|]+/gu, " ")
+    .trim();
+}
+
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** True when a negation word sits just before (≤2 words) or just after the match. */
+const isNeg = (w: string | undefined) => w !== undefined && NEGATIONS.has(w);
+
+/** Does a negation in the same clause belong to the phrase at [start, end)? */
 function negated(text: string, start: number, end: number): boolean {
-  const before = text.slice(0, start).trim().split(" ").filter(Boolean).slice(-2);
-  if (before.some(w => NEGATIONS.has(w))) return true;
-  const after = text.slice(end).trim().split(" ").filter(Boolean);
-  if (after[0] && NEGATIONS.has(after[0])) return true;
-  if (after[0] && PARTICLES.has(after[0]) && after[1] && NEGATIONS.has(after[1])) return true;
+  const before = text.slice(0, start).split("|").pop()!.trim().split(" ").filter(Boolean);
+  const after = text.slice(end).split("|")[0]!.trim().split(" ").filter(Boolean);
+
+  // before: "no pain", "not in pain"; but not "no no it hurts" or "pata nahi main kahan hoon"
+  let i = before.length - 1;
+  if (i >= 0 && FILLERS.has(before[i]!) && isNeg(before[i - 1])) i -= 1;
+  if (isNeg(before[i])) {
+    const prev = before[i - 1];
+    if (!isNeg(prev) && !(prev && KNOW.has(prev))) return true;
+  }
+
+  // after: "dard nahi hai", "dard to nahi"; but not "dard nahi ruk raha" or a closing tag "hai na"
+  let j = 0;
+  if (after[j] && AFTER_SKIP.has(after[j]!)) j += 1;
+  if (isNeg(after[j])) {
+    const next = after[j + 1];
+    if (after[j] === "na" && next === undefined) return false;
+    if (next && (KNOW.has(next) || CONTINUING.test(next))) return false;
+    return true;
+  }
   return false;
 }
 
@@ -128,6 +199,7 @@ function customRules(words: CustomDistressWord[] | undefined) {
 export function screenText(text: string, customWords?: CustomDistressWord[]): SafetyResult {
   const t = normalize(text);
   if (!t) return NONE;
+  const tc = normalizeClauses(text);
   let level: SafetyLevel = "none";
   const matched: string[] = [];
   const categories: SafetyCategory[] = [];
@@ -139,15 +211,16 @@ export function screenText(text: string, customWords?: CustomDistressWord[]): Sa
 
   for (const rule of COMPILED) {
     for (const re of rule.res) {
-      for (const m of t.matchAll(re)) {
+      for (const m of tc.matchAll(re)) {
         const start = m.index ?? 0;
-        if (rule.negatable && negated(t, start, start + m[0].length)) continue;
+        if (rule.negatable && negated(tc, start, start + m[0].length)) continue;
         // a bare "saans" only counts if no stronger breathing rule already matched it
         if (rule.category === "breathing" && rule.level === "check" && categories.includes("breathing")) continue;
         hit(rule.level, m[0], rule.category);
       }
     }
   }
+  // caregiver words match across punctuation, exactly as typed
   for (const c of customRules(customWords)) {
     for (const m of t.matchAll(c.re)) hit(c.level, m[0], "custom");
   }

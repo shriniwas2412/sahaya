@@ -38,6 +38,31 @@ export class LLMError extends Error {
 
 export const LLM_TIMEOUT_MS = 8000;
 
+// ---------- consent for remote models ----------
+
+/**
+ * A remote model (Groq, OpenRouter, the server proxy, Ollama on another machine)
+ * runs only with an explicit opt-in on the elder's consent record. Without it
+ * the pipeline uses the scripted companion. The flag is separate from
+ * scope_audio_cloud because this sends text about health to a third party.
+ */
+export interface ModelConsent {
+  scope_llm_cloud?: boolean | 0 | 1 | null;
+}
+
+export function remoteModelAllowed(consent: ModelConsent | null | undefined): boolean {
+  return consent?.scope_llm_cloud === true || consent?.scope_llm_cloud === 1;
+}
+
+/** Exchanges (user + reply) sent to a remote model. */
+export const REMOTE_HISTORY_EXCHANGES = 4;
+
+/** What leaves the phone when a remote model is on. Keep in sync with buildSystemPrompt({ minimal: true }). */
+export const REMOTE_MODEL_DISCLOSURE = {
+  en: "With an online model on, each reply sends: the elder's first name, language, a plain style guide for their stage, their likes and topics to avoid, the time of day, and the last 4 exchanges. Not sent: full name, age, stage number, family notes, contacts, medicines. Words of distress are never sent; the phone handles them.",
+  hi: "ऑनलाइन मॉडल चालू होने पर हर जवाब के लिए यह भेजा जाता है: बुज़ुर्ग का पहला नाम, भाषा, उनकी अवस्था के हिसाब से बात करने का सरल तरीका, उनकी पसंद और जिन बातों से बचना है, दिन का समय, और पिछली 4 बातचीत। नहीं भेजा जाता: पूरा नाम, उम्र, अवस्था का नंबर, परिवार के नोट्स, संपर्क, दवाइयाँ। परेशानी वाले शब्द कभी नहीं भेजे जाते; उन्हें फ़ोन ही संभालता है।",
+} as const;
+
 export type FetchLike = (url: string, init: RequestInit) => Promise<Pick<Response, "ok" | "status" | "json">>;
 
 export interface OpenAICompatibleConfig {
@@ -51,17 +76,20 @@ export interface OpenAICompatibleConfig {
   temperature?: number;
   /** Turns of history sent (user + assistant pairs). */
   maxTurns?: number;
+  /** Defaults to true. False only for a model on this same computer. */
+  remote?: boolean;
 }
 
 export class OpenAICompatibleProvider implements LLMProvider {
   readonly id: string;
-  readonly remote = true;
+  readonly remote: boolean;
   private readonly cfg: OpenAICompatibleConfig;
 
   constructor(cfg: OpenAICompatibleConfig) {
     if (!cfg.model?.trim()) throw new LLMError("config", `${cfg.id}: model is required`);
     if (cfg.requiresKey && !cfg.apiKey?.trim()) throw new LLMError("config", `${cfg.id}: missing API key`);
     this.id = cfg.id;
+    this.remote = cfg.remote ?? true;
     this.cfg = cfg;
   }
 
@@ -138,7 +166,16 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
 export class OllamaProvider extends OpenAICompatibleProvider {
   constructor(c: { model: string; baseUrl?: string; timeoutMs?: number; fetch?: FetchLike }) {
     const base = (c.baseUrl ?? "http://localhost:11434").replace(/\/+$/, "");
-    super({ ...c, id: "ollama", url: `${base}/v1/chat/completions`, requiresKey: false });
+    super({ ...c, id: "ollama", url: `${base}/v1/chat/completions`, requiresKey: false, remote: !isLoopback(base) });
+  }
+}
+
+function isLoopback(url: string): boolean {
+  try {
+    const h = new URL(url).hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1";
+  } catch {
+    return false;
   }
 }
 

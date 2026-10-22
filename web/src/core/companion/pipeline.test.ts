@@ -27,7 +27,8 @@ function spyLLM(reply: string | (() => Promise<string>) = "That sounds lovely. T
 function setup(over: Partial<ElderProfile> = {}, llm?: LLMProvider) {
   let t = 0;
   const steps: PipelineStep[] = [];
-  const p = new CompanionPipeline({ profile: profile(over), llm, clock: () => "10:00", now: () => t, trace: s => steps.push(s) });
+  // tests that pass a model opt in to it; the no-consent path has its own tests below
+  const p = new CompanionPipeline({ profile: profile(over), llm, consent: { scope_llm_cloud: 1 }, clock: () => "10:00", now: () => t, trace: s => steps.push(s) });
   return { p, steps, advance: (ms: number) => { t += ms; } };
 }
 
@@ -45,7 +46,7 @@ test("safety runs before any model call, on every turn", async () => {
   const order: string[] = [];
   const llm: LLMProvider = { id: "spy", remote: true, async complete() { order.push("llm"); return "Nice."; } };
   let t = 0;
-  const p = new CompanionPipeline({ profile: profile(), llm, clock: () => "10:00", now: () => t++, trace: s => { if (s === "safety") order.push("safety"); } });
+  const p = new CompanionPipeline({ profile: profile(), llm, consent: { scope_llm_cloud: 1 }, clock: () => "10:00", now: () => t++, trace: s => { if (s === "safety") order.push("safety"); } });
   for (const s of ["hello", "kites", "mangoes"]) await p.turn(s);
   assert.deepEqual(order, ["safety", "llm", "safety", "llm", "safety", "llm"]);
 });
@@ -153,7 +154,7 @@ test("the system prompt sent to the model is stage-aware", async () => {
   const { llm, calls } = spyLLM();
   const { p } = setup({ gdsStage: 5 }, llm);
   await p.turn("hello");
-  assert.match(calls[0]!.system, /Stage: GDS 5/);
+  assert.match(calls[0]!.system, /Never ask about recent events/, "stage-5 guidance (the number itself is not sent to a remote model)");
   assert.match(calls[0]!.system, /Never bring up: hospital/);
 });
 
@@ -209,4 +210,71 @@ test("session topics are collected for the feedback form", async () => {
   const { p } = setup();
   for (let i = 0; i < 5; i++) await p.turn("ok");
   assert.ok(p.sessionTopics().length >= 2);
+});
+
+// ---------- remote-model opt-in ----------
+test("a remote model is not used without scope_llm_cloud consent: scripted instead, nothing sent", async () => {
+  const { llm, calls } = spyLLM();
+  let t = 0;
+  const p = new CompanionPipeline({ profile: profile(), llm, clock: () => "10:00", now: () => t++ });
+  const r = await p.turn("we flew kites");
+  assert.equal(calls.length, 0);
+  assert.equal(r.source, "scripted");
+  assert.equal(r.trace.source, "scripted");
+  assert.match(p.modelBlocked ?? "", /scope_llm_cloud/);
+});
+
+test("with consent, the remote model gets the minimal prompt and at most 4 exchanges", async () => {
+  const { llm, calls } = spyLLM();
+  let t = 0;
+  const p = new CompanionPipeline({
+    profile: profile({ displayName: "Test Elder Surname", gdsStage: 4 }), llm, consent: { scope_llm_cloud: 1 },
+    clock: () => "10:00", now: () => t++,
+  });
+  for (let i = 0; i < 7; i++) await p.turn(`kites ${i}`);
+  const last = calls.at(-1)!;
+  assert.doesNotMatch(last.system, /Surname|GDS/);
+  assert.ok(last.messages.length <= 9, String(last.messages.length)); // 4 exchanges + the new message
+  assert.equal(last.messages.at(-1)!.content, "kites 6");
+  assert.equal(p.modelBlocked, null);
+});
+
+test("a local model (not remote) needs no cloud consent and gets the full prompt", async () => {
+  const calls: string[] = [];
+  const local: LLMProvider = { id: "local", remote: false, async complete(system) { calls.push(system); return "Nice."; } };
+  let t = 0;
+  const p = new CompanionPipeline({ profile: profile({ gdsStage: 4 }), llm: local, clock: () => "10:00", now: () => t++ });
+  const r = await p.turn("kites");
+  assert.equal(r.source, "llm");
+  assert.match(calls[0]!, /Stage: GDS 4/);
+});
+
+// ---------- turn trace for the UI ----------
+test("trace: heard text, safety level, scripted vs model, and the stages passed", async () => {
+  const { llm } = spyLLM();
+  let t = 0;
+  const p = new CompanionPipeline({ profile: profile(), llm, consent: { scope_llm_cloud: true }, clock: () => "10:00", now: () => t++ });
+  const ok = await p.turn("we used to fly kites");
+  assert.deepEqual(ok.trace, { heard: "we used to fly kites", safetyLevel: "none", source: "model", stages: ["safety", "trigger", "prompt", "llm", "guard"] });
+  const help = await p.turn("bachao");
+  assert.deepEqual(help.trace, { heard: "bachao", safetyLevel: "emergency", source: "scripted", stages: ["safety", "emergency"] });
+});
+
+test("trace: scripted default, redirect, and non-turn results", async () => {
+  const { p } = setup({ language: "en" });
+  assert.deepEqual(p.opener().trace, { heard: "", safetyLevel: "none", source: "scripted", stages: [] });
+  const r = await p.turn("hello");
+  assert.deepEqual(r.trace, { heard: "hello", safetyLevel: "none", source: "scripted", stages: ["safety", "trigger", "prompt", "scripted", "guard"] });
+  const red = await p.turn("hospital");
+  assert.deepEqual(red.trace.stages, ["safety", "trigger", "scripted"]);
+  assert.equal(p.help().trace.safetyLevel, "emergency");
+});
+
+test("trace: a failed model call shows the fallback to scripted", async () => {
+  const { llm } = spyLLM(async () => { throw new Error("HTTP 500"); });
+  let t = 0;
+  const p = new CompanionPipeline({ profile: profile(), llm, consent: { scope_llm_cloud: 1 }, clock: () => "10:00", now: () => t++ });
+  const r = await p.turn("hello");
+  assert.equal(r.trace.source, "scripted");
+  assert.deepEqual(r.trace.stages, ["safety", "trigger", "prompt", "llm", "scripted", "guard"]);
 });

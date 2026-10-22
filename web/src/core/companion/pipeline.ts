@@ -7,16 +7,22 @@
 //
 // STT and TTS stay in the UI; this module is pure logic plus one awaited
 // provider call. Conversation history lives in memory only.
+//
+// A remote model runs only with consent.scope_llm_cloud; it then gets the
+// minimal prompt and the last 4 exchanges (REMOTE_MODEL_DISCLOSURE). Every
+// result carries a `trace` the UI can show: heard → safety → reply.
 
 import type { ElderProfile, FeedbackEntry, Lang, TopicId } from "./types.ts";
 import { baseLang } from "./types.ts";
-import { NONE, SafetyScreen, type SafetyResult } from "./safety.ts";
+import { NONE, SafetyScreen, type SafetyLevel, type SafetyResult } from "./safety.ts";
 import { EmergencyFlow, type EmergencyAction } from "./emergency.ts";
 import { checkTriggers, topicForTurn, topicPlan, type TopicPlan } from "./triggers.ts";
 import { buildSystemPrompt, lengthRule } from "./prompt.ts";
 import { guardOutput, type GuardReason } from "./outputGuard.ts";
 import { ScriptedCompanion } from "./scripted.ts";
-import { ScriptedProvider, type ChatMessage, type LLMProvider } from "./llm.ts";
+import {
+  REMOTE_HISTORY_EXCHANGES, ScriptedProvider, remoteModelAllowed, type ChatMessage, type LLMProvider, type ModelConsent,
+} from "./llm.ts";
 import { speechRate } from "../speech/speech.ts";
 
 export type PipelineStep = "safety" | "emergency" | "trigger" | "prompt" | "llm" | "scripted" | "guard";
@@ -25,8 +31,10 @@ export interface PipelineDeps {
   profile: ElderProfile;
   /** Caregiver feedback, oldest first. */
   feedback?: readonly FeedbackEntry[];
-  /** Defaults to the offline ScriptedProvider. */
+  /** Defaults to the offline ScriptedProvider. A remote one also needs `consent`. */
   llm?: LLMProvider;
+  /** The elder's consent row; a remote model needs scope_llm_cloud = 1. */
+  consent?: ModelConsent | null;
   /** Local "HH:MM". */
   clock?: () => string;
   now?: () => number;
@@ -35,6 +43,17 @@ export interface PipelineDeps {
 }
 
 export type TurnSource = "llm" | "scripted" | "redirect" | "emergency" | "silence" | "opener";
+
+/** What the UI shows for a turn: सुन रहे हैं → सुरक्षा जांच → जवाब. */
+export interface TurnTrace {
+  /** The text the turn started from ("" for opener, silence, taps, Help). */
+  heard: string;
+  safetyLevel: SafetyLevel;
+  /** "model" only when a model's reply was spoken; everything else is scripted. */
+  source: "scripted" | "model";
+  /** Steps passed, in order. */
+  stages: PipelineStep[];
+}
 
 export interface TurnResult {
   /** Lines to speak, in order. */
@@ -49,6 +68,7 @@ export interface TurnResult {
   guard?: GuardReason[];
   /** Why the model was not used, when it fell back. */
   fallback?: string;
+  trace: TurnTrace;
 }
 
 export class CompanionPipeline {
@@ -63,7 +83,10 @@ export class CompanionPipeline {
   private readonly feedback: readonly FeedbackEntry[];
   private readonly clock: () => string;
   private readonly now: () => number;
-  private readonly trace: (s: PipelineStep) => void;
+  private readonly observer: (s: PipelineStep) => void;
+  private readonly blocked: string | null;
+  private stages: PipelineStep[] = [];
+  private heard = "";
   private history: ChatMessage[] = [];
   private turnNo = 0;
   private readonly topics = new Set<TopicId>();
@@ -77,13 +100,33 @@ export class CompanionPipeline {
     this.safety = new SafetyScreen({ stage: deps.profile.gdsStage, customWords: deps.profile.customDistressWords });
     this.flow = new EmergencyFlow(deps.profile);
     this.scripted = new ScriptedCompanion(deps.profile, { plan: this.plan });
-    this.llm = deps.llm ?? new ScriptedProvider(this.scripted);
+    const wanted = deps.llm ?? null;
+    if (wanted && wanted.remote && !remoteModelAllowed(deps.consent)) {
+      this.blocked = `${wanted.id}: an online model needs the scope_llm_cloud consent; using the offline companion`;
+      this.llm = new ScriptedProvider(this.scripted);
+    } else {
+      this.blocked = null;
+      this.llm = wanted ?? new ScriptedProvider(this.scripted);
+    }
     this.clock = deps.clock ?? (() => {
       const d = new Date();
       return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     });
     this.now = deps.now ?? (() => Date.now());
-    this.trace = deps.trace ?? (() => {});
+    this.observer = deps.trace ?? (() => {});
+  }
+
+  /** Why a configured model is not being used (missing consent), else null. */
+  get modelBlocked(): string | null { return this.blocked; }
+
+  private trace(step: PipelineStep): void {
+    this.stages.push(step);
+    this.observer(step);
+  }
+
+  private begin(heard: string): void {
+    this.stages = [];
+    this.heard = heard;
   }
 
   get emergencyPhase() { return this.flow.phase; }
@@ -93,6 +136,7 @@ export class CompanionPipeline {
 
   /** First line of a session. */
   opener(): TurnResult {
+    this.begin("");
     const r = this.scripted.opener(this.clock());
     this.history.push({ role: "assistant", content: r.text });
     this.safety.prompted(this.now());
@@ -101,6 +145,7 @@ export class CompanionPipeline {
 
   /** One utterance from the person (STT text or a tapped choice). */
   async turn(text: string): Promise<TurnResult> {
+    this.begin(text);
     const now = this.now();
 
     // 1. safety, always first
@@ -135,8 +180,10 @@ export class CompanionPipeline {
     // 3. prompt → 4. model (or scripted fallback)
     this.trace("prompt");
     const clock = this.clock();
-    const system = buildSystemPrompt({ profile: this.profile, clock, plan: this.plan });
-    const messages: ChatMessage[] = [...this.history, { role: "user", content: text }];
+    const remote = this.llm.remote;
+    const system = buildSystemPrompt({ profile: this.profile, clock, plan: this.plan, minimal: remote });
+    const past = remote ? this.history.slice(-REMOTE_HISTORY_EXCHANGES * 2) : this.history;
+    const messages: ChatMessage[] = [...past, { role: "user", content: text }];
     let raw: string;
     let source: TurnSource = this.llm.id === "scripted" ? "scripted" : "llm";
     let fallback: string | undefined;
@@ -172,6 +219,7 @@ export class CompanionPipeline {
 
   /** Call about once a second: silence timer and the 20 s no-answer rule. */
   tick(): TurnResult | null {
+    this.begin("");
     const now = this.now();
     if (this.flow.phase === "asking") {
       const a = this.flow.tick(now);
@@ -190,6 +238,7 @@ export class CompanionPipeline {
 
   /** Each tap on the elder screen (agitation detection). */
   tap(): TurnResult | null {
+    this.begin("");
     const now = this.now();
     const s = this.safety.tap(now);
     if (s.level === "none") return null;
@@ -198,14 +247,15 @@ export class CompanionPipeline {
 
   /** The Help button. */
   help(): TurnResult {
+    this.begin("");
     const s: SafetyResult = { level: "emergency", matched: ["help button"], trigger: "keyword", categories: ["help"] };
     this.safety.responded(this.now());
     return this.fromFlow(this.flow.start(s, this.now()), s);
   }
 
-  callConnected(): TurnResult { return this.fromFlow(this.flow.callConnected(this.now()), NONE); }
-  callUnanswered(): TurnResult { return this.fromFlow(this.flow.callUnanswered(this.now()), NONE); }
-  resolveEmergency(by: string): TurnResult { return this.fromFlow(this.flow.cancel(by, this.now()), NONE); }
+  callConnected(): TurnResult { this.begin(""); return this.fromFlow(this.flow.callConnected(this.now()), NONE); }
+  callUnanswered(): TurnResult { this.begin(""); return this.fromFlow(this.flow.callUnanswered(this.now()), NONE); }
+  resolveEmergency(by: string): TurnResult { this.begin(""); return this.fromFlow(this.flow.cancel(by, this.now()), NONE); }
 
   // ---- internals ----
 
@@ -225,6 +275,12 @@ export class CompanionPipeline {
   }
 
   private result(source: TurnSource, say: string[], s: SafetyResult): TurnResult {
-    return { say, lang: this.lang, rate: this.rate, source, safety: s, actions: [] };
+    const trace: TurnTrace = {
+      heard: this.heard,
+      safetyLevel: s.level,
+      source: source === "llm" ? "model" : "scripted",
+      stages: [...this.stages],
+    };
+    return { say, lang: this.lang, rate: this.rate, source, safety: s, actions: [], trace };
   }
 }

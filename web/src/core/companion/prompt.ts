@@ -6,7 +6,7 @@
 // The model name never appears in the prompt.
 
 import type { ElderProfile, FeedbackEntry, Lang, Stage, TopicId } from "./types.ts";
-import { addressName, baseLang, personaOf, styleStage } from "./types.ts";
+import { addressName, baseLang, callName, personaOf, styleStage } from "./types.ts";
 import { topicPlan, type TopicPlan } from "./triggers.ts";
 
 // ---------- length rule (shared with OutputGuard and the LLM call) ----------
@@ -129,6 +129,12 @@ export interface PromptInput {
   plan?: TopicPlan;
   /** Set when this turn must gently change topic. */
   redirectTo?: TopicId | null;
+  /**
+   * For a remote model: first name only, stage guidance without the stage
+   * number, and no age, family notes, energy note or sundown times.
+   * See REMOTE_MODEL_DISCLOSURE in llm.ts.
+   */
+  minimal?: boolean;
 }
 
 export function buildSystemPrompt(input: PromptInput): string {
@@ -140,11 +146,13 @@ export function buildSystemPrompt(input: PromptInput): string {
   const addr = addressName(profile, lang) || "friend";
   const plan = input.plan ?? topicPlan(profile, input.feedback ?? []);
   const rule = lengthRule(stage);
+  const min = input.minimal === true;
+  const who = min ? clean(callName(profile), 40) || "friend" : clean(profile.displayName, 60);
   const out: string[] = [];
 
   // persona and trust
   out.push(
-    `You are ${persona}, a warm, patient companion for ${clean(profile.displayName, 60)}, an older person who may be living with dementia. ` +
+    `You are ${persona}, a warm, patient companion for ${who}, an older person who may be living with dementia. ` +
     `A family caregiver set you up. Speak like a caring friend of the family: gentle, slow and respectful. ` +
     `Address them as "${addr}". You are always the same friend, ${persona}.`,
   );
@@ -159,12 +167,15 @@ export function buildSystemPrompt(input: PromptInput): string {
     : ""));
 
   // era
-  if (profile.birthDecade) out.push(`They were born in the ${profile.birthDecade}s. Songs, festivals and everyday life of their youth are good to ask about, as questions, never as facts about them.`);
+  if (min) { /* no age or era for a remote model */ }
+  else if (profile.birthDecade) out.push(`They were born in the ${profile.birthDecade}s. Songs, festivals and everyday life of their youth are good to ask about, as questions, never as facts about them.`);
   else if (profile.age) out.push(`They are about ${Math.round(profile.age)} years old.`);
 
   // stage
   const block = STAGE_BLOCK[s];
-  out.push(stage
+  out.push(min
+    ? `How to pitch your words: ${block.guide.join(" ")}`
+    : stage
     ? `Stage: GDS ${stage} (${block.label}). ${block.guide.join(" ")}`
     : `Stage: not assessed. Until the caregiver records it, use this gentle style: ${block.guide.join(" ")}`);
 
@@ -199,18 +210,19 @@ export function buildSystemPrompt(input: PromptInput): string {
   const pod = partOfDay(input.clock);
   if (pod) out.push(`It is ${pod} now (${clean(input.clock, 5)}).`);
   if (inSundownWindow(input.clock, profile.sundownStart, profile.sundownEnd)) {
+    const window = min ? "" : ` (${clean(profile.sundownStart, 5)}–${clean(profile.sundownEnd, 5)})`;
     out.push(
-      `This is their usual restless time of day (${clean(profile.sundownStart, 5)}–${clean(profile.sundownEnd, 5)}). ` +
+      `This is their usual restless time of day${window}. ` +
       "Be extra soft and slow. Choose calming topics: a soft song, a prayer if they wish, the evening sky, a warm drink. " +
       "No new or complex topics and no questions about plans.",
     );
   }
   const energy = clean(profile.energyPattern, 120);
-  if (energy) out.push(`Caregiver note on energy: ${energy}.`);
+  if (energy && !min) out.push(`Caregiver note on energy: ${energy}.`);
 
   // life story
   const story = clean(profile.lifeStory, 1500);
-  if (story && plan.weights.life_story > 0) {
+  if (story && plan.weights.life_story > 0 && !min) {
     out.push(`Notes from the family about their life. Use only these facts and ask about them; do not add details: ${story}`);
   } else {
     out.push("You know nothing about their life beyond what is written here. Never make up facts about them or their family; ask instead.");

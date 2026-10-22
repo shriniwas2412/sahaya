@@ -36,18 +36,27 @@ const MEDICAL: RegExp[] = [
   /(?<![\p{L}])(?:paracetamol|crocin|dolo|calpol|aspirin|ibuprofen|combiflam|diclofenac|insulin|metformin|glimepiride|donepezil|memantine|rivastigmine|galantamine|amlodipine|telmisartan|losartan|atorvastatin|pantoprazole|omeprazole|alprazolam|antibiotics?|painkillers?|sleeping pills?|पैरासिटामोल|पेनकिलर|नींद की गोली|इंसुलिन)(?![\p{L}])/iu,
   // instructions to take / change medicine
   /(?<![\p{L}])(?:take|have|swallow|stop|skip|double|increase|reduce|change)\s+(?:your|a|an|the|one|two|three|another|extra|more|less|some)?\s*(?:extra\s+)?(?:medicines?|medications?|tablets?|pills?|capsules?|doses?)(?![\p{L}])/iu,
-  /(?:दवा|दवाई|दवाइयाँ|गोली)\s*(?:लें|लीजिए|ले लीजिए|लो|ले लो|खाइए|खा लीजिए|खाओ|बंद|छोड़)/u,
-  /(?<![\p{L}])(?:dawai|dawaai|dava|dawa|goli)\s+(?:le|lo|lijiye|le lo|le lijiye|kha|khao|khaiye|kha lo|band|chhod)(?![\p{L}])/iu,
+  // medicine noun, up to 3 words, then a take/stop/don't verb ("आज दवाई मत लीजिए", "dawai aaj band kar dijiye")
+  /(?:दवा|दवाई|दवाइयाँ|दवाइयां|दवाओं|गोली|गोलियाँ|गोलियां)(?:\s+\S+){0,3}?\s+(?:मत|ना|बंद|छोड़|लें|लीजिए|ले लीजिए|लो|ले लो|खाइए|खा लीजिए|खाओ|की ज़रूरत नहीं|की जरूरत नहीं)/u,
+  /(?<![\p{L}])(?:dawai|dawaai|davai|dava|dawa|goli|goliyan|tablet|medicine)(?:\s+\S+){0,3}?\s+(?:le|lo|lijiye|lijie|kha|khao|khaiye|band|chhod|chod|mat|na)(?![\p{L}])/iu,
+  // negated / stop advice in English ("You don't need your pills", "No need to take the tablets", "don't need to see a doctor")
+  /(?<![\p{L}])(?:don[’']?t|do not|no need to|no need for|stop|skip)\s+(?:need\s+(?:to\s+)?)?(?:take\s+|taking\s+|have\s+|see\s+|seeing\s+|call\s+)?(?:your\s+|the\s+|a\s+|any\s+|those\s+|these\s+|my\s+)?(?:medicines?|medications?|tablets?|pills?|doctor)(?![\p{L}])/iu,
+  // telling them not to see or call a doctor
+  /(?:डॉक्टर|डाक्टर|doctor|daktar)(?:\s+\S+){0,3}?\s+(?:मत|mat|na|ना)\s+(?:जाइए|जाओ|जाएँ|जाएं|jao|jaiye|jaaiye|bulao|बुलाओ|बुलाइए)/iu,
   // diagnosis
   /(?<![\p{L}])you\s+(?:may\s+|might\s+|probably\s+|could\s+)?have\s+(?:dementia|alzheimer\w*|diabetes|cancer|a stroke|an infection|depression)/iu,
   /(?<![\p{L}])diagnos\w*/iu,
-  /आपको\s+(?:डिमेंशिया|अल्ज़ाइमर|अल्जाइमर|शुगर|डायबिटीज़|डायबिटीज|कैंसर)\s+(?:है|हो सकता)/u,
+  /(?:aapko|apko|आपको)\s+(?:\S+\s+){0,3}?(?:बीमारी|bimari|beemari|sugar|शुगर|diabetes|डायबिटीज़?|cancer|कैंसर|dementia|डिमेंशिया|alzheimer\w*|अल्ज़?ाइमर|bp|बीपी)\s+(?:है|hai|ho sakti|ho sakta|हो सकती|हो सकता)/iu,
 ];
 
 const PERSONA_BREAK = /(?<![\p{L}])(?:as an ai|i am an ai|im an ai|i'm an ai|language model|chatbot|मैं एक एआई)(?![\p{L}])/iu;
 
+// Patterns and text are both NFC so nukta letters (ज़, ड़) match however they were typed.
+const MEDICAL_NFC = MEDICAL.map(re => new RegExp(re.source.normalize("NFC"), re.flags));
+
 export function isMedicalAdvice(text: string): boolean {
-  return MEDICAL.some(re => re.test(text));
+  const t = String(text ?? "").normalize("NFC");
+  return MEDICAL_NFC.some(re => re.test(t));
 }
 
 /** Make text speakable: no markdown, lists, links, emoji or stage directions. */

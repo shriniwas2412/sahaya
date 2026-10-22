@@ -72,12 +72,14 @@ const REASON: Record<"hi" | "en", Partial<Record<SafetyCategory, string>>> = {
   hi: {
     help: "मदद माँगी", fall: "गिरने की बात", breathing: "साँस की तकलीफ़", chest: "सीने में दर्द", faint: "बेहोशी की बात",
     bleeding: "खून बहने की बात", self_harm: "खुद को नुकसान की बात", pain: "दर्द", fear: "डर", home: "घर जाना चाहते हैं",
-    lost: "भ्रमित / खोए हुए", custom: "आपका चुना शब्द", silence: "लंबी चुप्पी", agitation: "बेचैनी (बार-बार टैप)",
+    lost: "भ्रमित / खोए हुए", stroke: "सुन्नपन / चेहरा टेढ़ा", injury: "चोट", dizzy: "चक्कर",
+    unwell: "तबीयत ख़राब", sick: "उल्टी / बुखार", custom: "आपका चुना शब्द", silence: "लंबी चुप्पी", agitation: "बेचैनी (बार-बार टैप)",
   },
   en: {
     help: "asked for help", fall: "mentioned a fall", breathing: "breathing trouble", chest: "chest pain", faint: "fainting",
     bleeding: "bleeding", self_harm: "talk of self-harm", pain: "pain", fear: "fear", home: "wants to go home",
-    lost: "confused / lost", custom: "a word you added", silence: "long silence", agitation: "agitation (rapid taps)",
+    lost: "confused / lost", stroke: "numbness / drooping face", injury: "an injury", dizzy: "dizziness",
+    unwell: "feeling unwell", sick: "vomiting / fever", custom: "a word you added", silence: "long silence", agitation: "agitation (rapid taps)",
   },
 };
 

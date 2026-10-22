@@ -66,3 +66,23 @@ test("empty or symbol-only output asks for a scripted line", () => {
 test("clean short text passes untouched", () => {
   assert.deepEqual(guardOutput("आज मौसम बहुत सुहाना है।", { stage: 4, lang: "hi" }), { text: "आज मौसम बहुत सुहाना है।", reasons: [] });
 });
+
+// ---------- stop/skip/negated medicine advice and diagnosis phrasings ----------
+test("negated or reworded medicine advice is blocked in Hindi, Hinglish and English", () => {
+  for (const s of [
+    "आज दवाई मत लीजिए, आराम कीजिए।", "दवा आज मत खाइए।", "गोली अभी बंद कर दीजिए।", "दवाई की ज़रूरत नहीं है।",
+    "dawai aaj band kar dijiye", "Ek goli aur le lijiye.", "BP ki dawai chhod dijiye", "neend ki goli le lo", "dawai mat lo",
+    "You don't need your pills today.", "Don't take your medicine.", "No need to take the tablets.", "Stop the medicine for a while.",
+    "Have two crocin",
+    "आपको भूलने की बीमारी है।", "Aapko sugar ho sakti hai.", "आपको शुगर हो सकती है।", "aapko bimari hai",
+    "आप डॉक्टर के पास मत जाइए।", "doctor ke paas mat jaiye", "You don't need to see a doctor.",
+  ]) assert.equal(isMedicalAdvice(s), true, s);
+});
+
+test("everyday lines near those words still pass", () => {
+  for (const s of [
+    "Your daughter is a doctor? How wonderful.", "आप डॉक्टर के पास गए थे?", "Don't worry, I'm right here.",
+    "Mat ghabraiye, main yahin hoon.", "चिंता मत कीजिए।", "Goli wala khel khelte the?", "बीमार दिनों की बात मत कीजिए।",
+    "Shall we hum an old song?", "आज बारिश हो सकती है।",
+  ]) assert.equal(isMedicalAdvice(s), false, s);
+});

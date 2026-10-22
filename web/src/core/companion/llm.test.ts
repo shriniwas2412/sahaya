@@ -83,3 +83,26 @@ test("ScriptedProvider is offline: no fetch, answers from the banks", async () =
   } finally { globalThis.fetch = orig; }
   assert.equal(called, false);
 });
+
+// ---------- explicit opt-in for remote models ----------
+import { remoteModelAllowed, REMOTE_MODEL_DISCLOSURE } from "./llm.ts";
+
+test("remote model opt-in accepts only an explicit scope_llm_cloud true/1", () => {
+  assert.equal(remoteModelAllowed({ scope_llm_cloud: true }), true);
+  assert.equal(remoteModelAllowed({ scope_llm_cloud: 1 }), true);
+  for (const c of [null, undefined, {}, { scope_llm_cloud: 0 }, { scope_llm_cloud: false }]) assert.equal(remoteModelAllowed(c as never), false);
+});
+
+test("Ollama on this computer is not remote; on another machine it is", () => {
+  assert.equal(new OllamaProvider({ model: "m" }).remote, false);
+  assert.equal(new OllamaProvider({ model: "m", baseUrl: "http://127.0.0.1:11434" }).remote, false);
+  assert.equal(new OllamaProvider({ model: "m", baseUrl: "http://192.168.1.5:11434" }).remote, true);
+  assert.equal(new GroqProvider({ apiKey: "k", model: "m" }).remote, true);
+  assert.equal(new ProxyProvider({ url: "/api/llm", model: "m" }).remote, true);
+});
+
+test("disclosure text names what is sent and what is not, in Hindi and English", () => {
+  assert.match(REMOTE_MODEL_DISCLOSURE.en, /first name/);
+  assert.match(REMOTE_MODEL_DISCLOSURE.en, /Not sent: .*stage number.*family notes/);
+  assert.match(REMOTE_MODEL_DISCLOSURE.hi, /पहला नाम/);
+});

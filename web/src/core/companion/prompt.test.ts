@@ -123,3 +123,25 @@ test("pure: same input, same output", () => {
   const i = { profile: synthetic(4), clock: "18:00", feedback: [{ keep: ["music"] }] };
   assert.equal(buildSystemPrompt(i), buildSystemPrompt(i));
 });
+
+// ---------- minimal context for remote models ----------
+test("minimal prompt: first name only, no stage number, no age, notes, energy or sundown times", () => {
+  const profile: ElderProfile = {
+    ...synthetic(5), displayName: "Test Elder Surname", age: 81, birthDecade: null,
+    lifeStory: "Taught in a village school.", energyPattern: "tired after lunch",
+  };
+  const p = buildSystemPrompt({ profile, clock: "18:00", minimal: true });
+  assert.doesNotMatch(p, /Surname|Elder Surname/);
+  assert.match(p, /companion for Test,/);
+  assert.doesNotMatch(p, /GDS|Stage: |stage \d/i);
+  assert.match(p, /Never ask about recent events/, "the stage guidance itself stays");
+  assert.doesNotMatch(p, /81|years old|born in/);
+  assert.doesNotMatch(p, /village school|tired after lunch|17:30|20:00/);
+  assert.match(p, /usual restless time of day\./, "sundown rule stays, without the times");
+  assert.match(p, /Never make up facts/);
+  assert.match(p, /Never bring up: hospital/, "avoid list is still needed");
+});
+
+test("full prompt is unchanged when minimal is off (snapshots above still hold)", () => {
+  assert.match(buildSystemPrompt({ profile: synthetic(5), minimal: false }), /Stage: GDS 5/);
+});
