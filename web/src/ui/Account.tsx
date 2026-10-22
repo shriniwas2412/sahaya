@@ -38,7 +38,7 @@ export function Account() {
   async function sync() {
     try {
       const r = await syncOnce(repo, httpPost());
-      setMsg(t.syncOk(r.pushed, r.pulled));
+      setMsg(t.syncOk(r.pushed, r.pulled) + (r.kept ? ` ${t.syncKept(r.kept)}` : ""));
     } catch {
       setMsg(t.syncFail);
     }

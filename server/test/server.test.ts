@@ -89,6 +89,12 @@ const S = (wall: number, node = "dev1") => `${String(wall).padStart(15, "0")}:00
 const elderRow = (over: Record<string, unknown> = {}, ts = S(1)) =>
   stamp(null, { id: "e1", display_name: "Test Elder 1", gds_stage: 4, language: "hi-IN", preferences: ["bhajan"], family_contacts: [], persona_name: "Sahaya", ...over } as Versioned, ts);
 
+/** Record sync consent for elder e1 on the server (rows about an elder need it). */
+async function consented(e: Env, cookie: string, subject = "e1") {
+  const r = await call(e, "/sync", { cookie, body: { rows: [{ table: "consent", row: consentRow(subject) }] } });
+  assert.deepEqual(r.json.rejected, []);
+}
+
 /** A consent row for an elder; scope_sync defaults to 1 (sync allowed). */
 const consentRow = (subject = "e1", over: Record<string, unknown> = {}, ts = S(1)) =>
   stamp(null, { id: `c-${subject}`, subject_type: "elder", subject_id: subject, given_by: "guardian", method: "digital",
@@ -97,6 +103,7 @@ const consentRow = (subject = "e1", over: Record<string, unknown> = {}, ts = S(1
 test("sync: push then pull returns the row with JSON columns intact", async () => {
   const e = env();
   const cookie = await signedUp(e);
+  await consented(e, cookie);
   const r = await call(e, "/sync", { cookie, body: { since: "", rows: [{ table: "elder", row: elderRow() }] } });
   assert.equal(r.status, 200);
   assert.equal(r.json.accepted, 1);
@@ -110,6 +117,7 @@ test("sync: push then pull returns the row with JSON columns intact", async () =
 test("sync: concurrent edits from two devices merge field by field", async () => {
   const e = env();
   const cookie = await signedUp(e);
+  await consented(e, cookie);
   await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }] } });
   const a = stamp(elderRow(), { ...elderRow(), dialect: "Bundeli" }, S(5, "devA"));
   const b = stamp(elderRow(), { ...elderRow(), notes: "Likes bhajans" }, S(6, "devB"));
@@ -123,6 +131,7 @@ test("sync: concurrent edits from two devices merge field by field", async () =>
 test("sync: a slow-clock device's write is still pulled by a device that synced later", async () => {
   const e = env();
   const cookie = await signedUp(e);
+  await consented(e, cookie);
   const first = await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow({}, S(9_000_000_000)) }] } });
   const late = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"] } as Versioned, S(1, "slow"));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "medicine", row: late }] } });
@@ -134,6 +143,7 @@ test("sync: another account cannot read or overwrite my rows; unknown tables and
   const e = env();
   const mine = await signedUp(e, "one@example.test");
   const theirs = await signedUp(e, "two@example.test");
+  await consented(e, mine);
   await call(e, "/sync", { cookie: mine, body: { rows: [{ table: "elder", row: elderRow() }] } });
   const steal = await call(e, "/sync", { cookie: theirs, body: { rows: [
     { table: "elder", row: stamp(elderRow(), { ...elderRow(), display_name: "Hacked" }, S(99)) },
@@ -151,6 +161,7 @@ test("sync: another account cannot read or overwrite my rows; unknown tables and
 test("cron: creates and marks a dose due, then escalates it once when unconfirmed", async () => {
   const e = env({ VAPID_PUBLIC_KEY: undefined });
   const cookie = await signedUp(e);
+  await consented(e, cookie);
   const med = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"], escalate_after_min: 30, active: 1 } as Versioned, S(2));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }, { table: "medicine", row: med }] } });
   const at = (iso: string) => Date.parse(iso);
@@ -172,6 +183,7 @@ test("cron: creates and marks a dose due, then escalates it once when unconfirme
 test("cron: a dose the elder confirmed is never escalated", async () => {
   const e = env();
   const cookie = await signedUp(e);
+  await consented(e, cookie);
   const med = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"], escalate_after_min: 30, active: 1 } as Versioned, S(2));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }, { table: "medicine", row: med }] } });
   await runCron(e, Date.parse("2026-10-20T02:35:00Z"));
@@ -188,6 +200,7 @@ test("cron pushes to the caregiver's subscriptions and drops gone ones", async (
   const p256dh = b64url(await crypto.subtle.exportKey("raw", ua.publicKey));
   const e = env({ VAPID_PUBLIC_KEY: pub, VAPID_PRIVATE_KEY: priv, VAPID_SUBJECT: "mailto:test@example.test" });
   const cookie = await signedUp(e);
+  await consented(e, cookie);
   for (const endpoint of ["https://push.example.test/ok", "https://push.example.test/gone"]) {
     assert.equal((await call(e, "/push/subscribe", { cookie, body: { endpoint, keys: { p256dh, auth: b64url(crypto.getRandomValues(new Uint8Array(16))) } } })).status, 201);
   }
@@ -204,6 +217,7 @@ test("cron pushes to the caregiver's subscriptions and drops gone ones", async (
 test("sync: editing an elder that already has medicines works with foreign keys on", async () => {
   const e = env();
   const cookie = await signedUp(e);
+  await consented(e, cookie);
   const med = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"] } as Versioned, S(2));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }, { table: "medicine", row: med }] } });
   const edit = stamp(elderRow(), { ...elderRow(), dialect: "Malwi" }, S(10));
@@ -273,4 +287,44 @@ test("cron: an inactive medicine gets no reminder; a moved time closes the old d
   const moved = stamp(active, { ...active, times: ["23:59"] }, S(4));
   await call(e, "/sync", { cookie, body: { rows: [{ table: "medicine", row: moved }] } });
   assert.deepEqual(await runCron(e, now0 + 45 * 60_000), { due: 0, missed: 0, pushes: 0 });
+});
+
+// --- consent scope_sync is enforced on the server ---
+test("sync: an elder with no consent row, or with scope_sync=0, is refused with all its child rows", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  const med = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"] } as Versioned, S(2));
+  const none = await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }, { table: "medicine", row: med }] } });
+  assert.deepEqual(none.json.rejected.map((r: { reason: string }) => r.reason), ["no_sync_consent", "no_sync_consent"]);
+  const no = await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }, { table: "consent", row: consentRow("e1", { scope_sync: 0 }) }] } });
+  assert.deepEqual(no.json.rejected.map((r: { reason: string }) => r.reason), ["no_sync_consent", "no_sync_consent"]);
+  assert.equal((await e.DB.prepare("SELECT COUNT(*) AS n FROM elder").first<{ n: number }>())!.n, 0);
+});
+
+test("sync: consent sent in the same batch (even after the elder) allows the elder and its children", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  const med = stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"] } as Versioned, S(2));
+  const r = await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }, { table: "medicine", row: med }, { table: "consent", row: consentRow() }] } });
+  assert.deepEqual(r.json.rejected, []);
+  assert.equal(r.json.accepted, 3);
+});
+
+test("sync: withdrawing sync consent later stops new rows for that elder", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "consent", row: consentRow() }, { table: "elder", row: elderRow() }] } });
+  const off = stamp(consentRow(), { ...consentRow(), scope_sync: 0 }, S(5));
+  const r = await call(e, "/sync", { cookie, body: { rows: [{ table: "consent", row: off }, { table: "elder", row: stamp(elderRow(), { ...elderRow(), notes: "x" }, S(6)) }] } });
+  assert.deepEqual(r.json.rejected.map((x: { table: string; reason: string }) => `${x.table}:${x.reason}`), ["elder:no_sync_consent"]);
+});
+
+test("sync: a child row pointing at another account's elder is refused", async () => {
+  const e = env();
+  const a = await signedUp(e, "a@example.test");
+  const b = await signedUp(e, "b@example.test");
+  await call(e, "/sync", { cookie: a, body: { rows: [{ table: "consent", row: consentRow() }, { table: "elder", row: elderRow() }] } });
+  const med = stamp(null, { id: "mB", elder_id: "e1", name: "Test Tablet B", times: ["08:00"] } as Versioned, S(2));
+  const r = await call(e, "/sync", { cookie: b, body: { rows: [{ table: "medicine", row: med }] } });
+  assert.deepEqual(r.json.rejected.map((x: { reason: string }) => x.reason), ["no_sync_consent"]);
 });

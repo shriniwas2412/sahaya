@@ -52,12 +52,51 @@ async function loadRow(db: D1Database, table: string, id: string): Promise<{ row
   return { row, owner: meta.owner };
 }
 
+
+// ---- consent gate ----
+// Rows about an elder reach the server only when that elder's newest, non-withdrawn
+// consent (owned by the same account) says scope_sync = 1. The elder must also belong
+// to the account, so nobody can attach rows to someone else's elder.
+
+const ELDER_TABLES = new Set(["elder", "medicine", "dose_event", "session", "activity_score", "safety_event", "consent"]);
+
+async function elderOf(db: D1Database, table: string, row: Versioned): Promise<string | null> {
+  switch (table) {
+    case "elder": return row.id;
+    case "consent": return (row.subject_id as string) ?? null;
+    case "medicine": case "session": case "safety_event": return (row.elder_id as string) ?? null;
+    case "dose_event": {
+      const m = await db.prepare("SELECT elder_id FROM medicine WHERE id = ?").bind(row.medicine_id ?? "").first<{ elder_id: string }>();
+      return m?.elder_id ?? null;
+    }
+    case "activity_score": {
+      const s = await db.prepare("SELECT elder_id FROM session WHERE id = ?").bind(row.session_id ?? "").first<{ elder_id: string }>();
+      return s?.elder_id ?? null;
+    }
+    default: return null;
+  }
+}
+
+export async function syncConsented(db: D1Database, owner: string, elderId: string): Promise<boolean> {
+  const c = await db.prepare(
+    `SELECT c.scope_sync AS s FROM consent c JOIN sync_meta m ON m.tbl = 'consent' AND m.id = c.id
+      WHERE c.subject_id = ? AND m.owner = ? AND c.deleted = 0 AND c.withdrawn_at IS NULL
+      ORDER BY c.recorded_at DESC LIMIT 1`,
+  ).bind(elderId, owner).first<{ s: number }>();
+  if (c?.s !== 1) return false;
+  const e = await db.prepare("SELECT owner FROM sync_meta WHERE tbl = 'elder' AND id = ?").bind(elderId).first<{ owner: string }>();
+  return !e || e.owner === owner;
+}
+
 export interface PushResult { accepted: number; rejected: { table: string; id: string; reason: string }[] }
 
 export async function pushChanges(db: D1Database, owner: string, changes: Change[], now?: () => number, trusted = false): Promise<PushResult> {
   const out: PushResult = { accepted: 0, rejected: [] };
   const clock = await serverClock(db, now);
-  for (const c of changes.slice(0, 2000)) {
+  // Consent rows first, so an elder sent in the same batch as its consent is accepted.
+  const ordered = changes.slice(0, 2000).map((c, i) => ({ c, i }))
+    .sort((x, y) => (x.c.table === "consent" ? 0 : 1) - (y.c.table === "consent" ? 0 : 1) || x.i - y.i).map((x) => x.c);
+  for (const c of ordered) {
     const cols = Object.hasOwn(COLUMNS, c.table) ? COLUMNS[c.table] : undefined;
     const id = c.row?.id;
     if (!cols || typeof id !== "string" || id.length > 200) { out.rejected.push({ table: String(c.table), id: String(id), reason: "unknown" }); continue; }
@@ -72,6 +111,15 @@ export async function pushChanges(db: D1Database, owner: string, changes: Change
     const prev = await loadRow(db, c.table, id);
     if (prev && prev.owner !== owner) { out.rejected.push({ table: c.table, id, reason: "forbidden" }); continue; }
     const merged = mergeRow(c.table, prev?.row, clean);
+    if (!trusted && ELDER_TABLES.has(c.table)) {
+      const elderId = await elderOf(db, c.table, merged);
+      const ok = !!elderId && (c.table === "consent"
+        // A consent row is stored when it allows sync, or when it updates one the server
+        // already has (so a later "stop syncing" reaches the server).
+        ? (merged.scope_sync === 1 && !merged.withdrawn_at) || !!prev
+        : await syncConsented(db, owner, elderId));
+      if (!ok) { out.rejected.push({ table: c.table, id, reason: "no_sync_consent" }); continue; }
+    }
     const names = ["id", ...cols, "origin", "deleted", "created_by", "hlc"];
     const values = [id, ...cols.map((k) => toDb(k, merged[k])), merged.origin ?? null, merged.deleted ? 1 : 0, owner, rowStamp(merged) || clock.tick()];
     try {
