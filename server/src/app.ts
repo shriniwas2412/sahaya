@@ -13,7 +13,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Env } from "./env.ts";
 import { hashPassword, verifyPassword, validPassword } from "./lib/password.ts";
 import { signJwt, verifyJwt, type Claims } from "./lib/jwt.ts";
-import { pushChanges, pullChanges } from "./sync.ts";
+import { pushChanges, pullChanges, exportOwner, deleteOwner } from "./sync.ts";
 import { sendPush, type PushSubscriptionJson } from "./lib/webpush.ts";
 import { ulid } from "../../web/src/core/ids.ts";
 import { LIMITS, limitKey, overLimit, record, clear } from "./lib/rateLimit.ts";
@@ -109,6 +109,9 @@ export function createApp() {
   app.use("*", async (c, next) => {
     const claims = await verifyJwt(getCookie(c, COOKIE), c.env.JWT_SECRET);
     if (!claims) return c.json({ error: "auth" }, 401);
+    // A deleted account's cookie must not keep working until it expires.
+    const alive = await c.env.DB.prepare("SELECT 1 AS x FROM app_user WHERE id = ? AND deleted = 0").bind(claims.sub).first();
+    if (!alive) return c.json({ error: "auth" }, 401);
     c.set("user", claims);
     await next();
   });
@@ -125,6 +128,21 @@ export function createApp() {
     const pushed = await pushChanges(c.env.DB, owner, (b.rows ?? []) as never[]);
     const pulled = await pullChanges(c.env.DB, owner, typeof b.since === "string" ? b.since : "");
     return c.json({ ...pulled, accepted: pushed.accepted, rejected: pushed.rejected });
+  });
+
+  app.get("/account/export", async (c) => {
+    const owner = c.get("user").sub;
+    const account = await c.env.DB.prepare("SELECT id, name, email, role, created_at FROM app_user WHERE id = ?").bind(owner).first();
+    const subs = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM push_sub WHERE user_id = ?").bind(owner).first<{ n: number }>();
+    return c.json({ app: "sahaya", exported_at: new Date().toISOString(), account, push_subscriptions: subs?.n ?? 0, tables: await exportOwner(c.env.DB, owner) });
+  });
+
+  app.post("/account/delete", async (c) => {
+    const b = await c.req.json<{ confirm?: string }>().catch(() => ({} as Record<string, string>));
+    if (b.confirm !== "DELETE") return c.json({ error: "confirm" }, 400);
+    const rows = await deleteOwner(c.env.DB, c.get("user").sub);
+    deleteCookie(c, COOKIE, { path: "/" });
+    return c.json({ ok: true, rows });
   });
 
   app.get("/push/key", (c) => c.json({ key: c.env.VAPID_PUBLIC_KEY ?? null }));

@@ -4,6 +4,7 @@ import { me, signIn, signUp, signOut, enablePush, type Me } from "./api.ts";
 import { syncOnce, httpPost } from "../data/syncClient.ts";
 import { WebSpeechProvider, speechLocale, type SpeechCapabilities } from "../core/speech/index.ts";
 import type { LlmSettings } from "./llmSettings.ts";
+import { DataRights } from "./DataRights.tsx";
 
 export function Account() {
   const { repo, t, lang, data } = useApp();
@@ -100,6 +101,7 @@ export function Account() {
         )}
         <button onClick={async () => { await repo.backend.setMeta("llm", llm); setMsg(t.saved); }}>{t.save}</button>
       </section>
+      <DataRights />
     </>
   );
 }

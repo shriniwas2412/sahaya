@@ -2,7 +2,8 @@
 // per-field versions (_v), its newest stamp (hlc) and the device it came from (origin).
 
 import { mergeRow } from "../core/merge.ts";
-import { createClock, rowStamp, stamp, tombstone, maxStamp, type Clock, type Versioned } from "../core/sync.ts";
+import { scrub } from "../core/scrub.ts";
+import { createClock, rowStamp, stamp, maxStamp, type Clock, type Versioned } from "../core/sync.ts";
 
 export const TABLES = ["elder", "medicine", "dose_event", "session", "activity_score", "safety_event", "consent"] as const;
 export type Table = (typeof TABLES)[number];
@@ -13,6 +14,8 @@ export interface Backend {
   all(table: Table): Promise<Versioned[]>;
   /** Hard delete on this device only (demo data). Synced deletes use tombstones instead. */
   delete(table: Table, id: string): Promise<void>;
+  /** Remove every row and every device setting. */
+  clear(): Promise<void>;
   getMeta<T>(key: string): Promise<T | undefined>;
   setMeta(key: string, value: unknown): Promise<void>;
 }
@@ -72,14 +75,21 @@ export class Repo {
     return next as unknown as T;
   }
 
+  /** Delete: a tombstone with the personal fields cleared, so the delete syncs without PII. */
   async remove(table: Table, id: string): Promise<void> {
     const prev = await this.backend.get(table, id);
     if (!prev) return;
     const ts = this.clock.tick();
-    const next = tombstone(prev, ts);
+    const next = stamp(prev, scrub(table, { ...prev, deleted: true }) as Versioned, ts);
     next.hlc = rowStamp(next);
     await this.backend.put(table, next);
     await this.backend.setMeta("hlc_last", ts);
+    this.emit();
+  }
+
+  /** Erase everything on this device: all rows and all settings (Delete all). */
+  async wipeAll(): Promise<void> {
+    await this.backend.clear();
     this.emit();
   }
 
@@ -132,6 +142,7 @@ export function memoryBackend(): Backend {
     async put(table, row) { tbl(table).set(row.id, clone(row)); },
     async all(table) { return [...tbl(table).values()].map(clone); },
     async delete(table, id) { tbl(table).delete(id); },
+    async clear() { t.clear(); meta.clear(); },
     async getMeta(key) { return clone(meta.get(key)) as never; },
     async setMeta(key, value) { meta.set(key, clone(value)); },
   };

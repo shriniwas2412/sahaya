@@ -215,3 +215,7 @@ code { font-family: ui-monospace, Menlo, monospace; }
 main.elder { height: 100dvh; min-height: 0; overflow: hidden; }
 .elder-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }
 main.elder > .help { position: static; flex: 0 0 auto; }
+
+/* Delete all */
+.danger-zone { border-left: 4px solid var(--danger); padding: 4px 0 4px 14px; }
+.danger-zone h3 { color: var(--danger); }

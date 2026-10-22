@@ -21,6 +21,10 @@ export const signUp = (name: string, email: string, password: string) =>
   call<Me>("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, role: "caregiver" }) });
 export const signOut = () => call<{ ok: true }>("/auth/logout", { method: "POST" });
 
+export const exportAccount = () => call<unknown>("/account/export");
+/** Hard-deletes the account, its rows and push subscriptions on the server. */
+export const deleteAccount = () => call<{ ok: true }>("/account/delete", { method: "POST", body: JSON.stringify({ confirm: "DELETE" }) });
+
 /** Tell the caregiver's devices (Web Push) that the elder may need help. */
 export const notifyCaregiver = (elderId: string, text: string) =>
   call<{ sent: number }>("/notify", { method: "POST", body: JSON.stringify({ elder_id: elderId, text }) });

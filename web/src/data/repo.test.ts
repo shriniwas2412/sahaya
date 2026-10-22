@@ -70,3 +70,23 @@ test("after seeing a remote stamp from the future, local writes sort after it", 
   const s = await r.save("elder", { id: "e1", display_name: "y" });
   assert.ok((s as unknown as { hlc: string }).hlc > future);
 });
+
+test("remove() clears personal fields locally, so the tombstone that syncs carries no PII", async () => {
+  const r = await Repo.open(memoryBackend(), ids);
+  await r.save("elder", { id: "e1", display_name: "Test Elder 1", notes: "Likes bhajans" });
+  await r.remove("elder", "e1");
+  const raw = await r.backend.get("elder", "e1");
+  assert.equal(raw!.deleted, true);
+  assert.equal(raw!.display_name, "");
+  assert.equal(raw!.notes, null);
+});
+
+test("wipeAll empties every table and the device settings", async () => {
+  const b = memoryBackend();
+  const r = await Repo.open(b, ids);
+  await r.save("elder", { id: "e1", display_name: "Test Elder 1" });
+  await b.setMeta("pin_hash", "x");
+  await r.wipeAll();
+  assert.deepEqual(await b.all("elder"), []);
+  assert.equal(await b.getMeta("pin_hash"), undefined);
+});

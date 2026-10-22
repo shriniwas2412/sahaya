@@ -104,7 +104,7 @@ export async function loadDemo(repo: Repo, now: number = Date.now(), pinIteratio
 
   await repo.save("consent", {
     id: "demo-consent", subject_type: "elder", subject_id: DEMO_ELDER_ID, given_by: "guardian", method: "digital",
-    scope_store: 1, scope_sync: 0, scope_audio_cloud: 1, scope_contact_share: 0, scope_research_aggregate: 0,
+    scope_store: 1, scope_sync: 0, scope_audio_cloud: 1, scope_llm_cloud: 0, scope_contact_share: 0, scope_research_aggregate: 0,
     language: "hi", recorded_at: new Date(now - 30 * DAY).toISOString(),
   });
 

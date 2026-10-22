@@ -32,6 +32,8 @@ export interface Data {
   activities: ActivityRow[];
   /** Demo data is loaded: show the banner, never dial, never sync. */
   demo: boolean;
+  /** Changes whenever a consent row changes, so consent views reload. */
+  consentVersion: string;
 }
 
 export type Route = { name: "welcome" } | { name: "setup"; edit: boolean } | { name: "home"; tab?: string } | { name: "elder"; sessionId: string } | { name: "feedback"; sessionId: string };
@@ -58,7 +60,8 @@ async function load(repo: Repo): Promise<Data> {
   const safety = elder ? (await repo.list<SafetyRow>("safety_event")).filter((s) => s.elder_id === elder.id) : [];
   const activities = (await repo.list<ActivityRow>("activity_score")).filter((a) => sIds.has(a.session_id));
   const demo = (await repo.backend.getMeta<boolean>("demo")) === true;
-  return { elder, meds, doses, sessions, safety, activities, demo };
+  const consentVersion = (await repo.list<{ hlc?: string }>("consent")).map((c) => c.hlc ?? "").sort().join(",");
+  return { elder, meds, doses, sessions, safety, activities, demo, consentVersion };
 }
 
 export function App({ repo, initialLang }: { repo: Repo; initialLang: Lang }) {

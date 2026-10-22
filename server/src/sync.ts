@@ -6,6 +6,7 @@
 import { rowStamp, createClock, type Versioned } from "../../web/src/core/sync.ts";
 import { mergeRow } from "../../web/src/core/merge.ts";
 import { decode } from "../../web/src/core/sync.ts";
+import { scrub } from "../../web/src/core/scrub.ts";
 
 /** A device clock may run ahead, but not by more than this (the same bound Kisan uses). */
 export const MAX_FUTURE_MS = 24 * 3_600_000;
@@ -22,7 +23,7 @@ export const COLUMNS: Record<string, string[]> = {
   activity_score: ["session_id", "task", "score", "max_score"],
   safety_event: ["elder_id", "session_id", "at", "trigger", "matched", "action", "resolved_at", "resolved_by"],
   consent: ["subject_type", "subject_id", "given_by", "guardian_name", "guardian_relation", "method", "scope_store", "scope_sync",
-    "scope_audio_cloud", "scope_contact_share", "scope_research_aggregate", "language", "recorded_at", "evidence_ref", "withdrawn_at"],
+    "scope_audio_cloud", "scope_llm_cloud", "scope_contact_share", "scope_research_aggregate", "language", "recorded_at", "evidence_ref", "withdrawn_at"],
 };
 const JSON_COLS = new Set(["preferences", "triggers", "family_contacts", "times", "topics", "feedback_keep", "feedback_avoid"]);
 const SYNCED = ["origin", "deleted"];
@@ -120,6 +121,8 @@ export async function pushChanges(db: D1Database, owner: string, changes: Change
         : await syncConsented(db, owner, elderId));
       if (!ok) { out.rejected.push({ table: c.table, id, reason: "no_sync_consent" }); continue; }
     }
+    // A deleted row is stored without its personal fields, whatever the client sent.
+    if (merged.deleted) Object.assign(merged, scrub(c.table, merged), { _v: merged._v });
     const names = ["id", ...cols, "origin", "deleted", "created_by", "hlc"];
     const values = [id, ...cols.map((k) => toDb(k, merged[k])), merged.origin ?? null, merged.deleted ? 1 : 0, owner, rowStamp(merged) || clock.tick()];
     try {
@@ -158,4 +161,39 @@ export async function serverWrite(db: D1Database, owner: string, table: string, 
   for (const k of Object.keys(row)) if (k !== "id" && JSON.stringify(prev?.row[k]) !== JSON.stringify(row[k])) v[k] = ts;
   // The server's own writes are trusted: the device clock bound does not apply to them.
   await pushChanges(db, owner, [{ table, row: { ...(prev?.row ?? {}), ...row, id: row.id as string, _v: v } }], now === undefined ? undefined : () => now, true);
+}
+
+// ---- data rights ----
+
+/** Every row this account owns, by table (for GET /account/export). */
+export async function exportOwner(db: D1Database, owner: string): Promise<Record<string, Versioned[]>> {
+  const out: Record<string, Versioned[]> = Object.fromEntries(Object.keys(COLUMNS).map((t) => [t, []]));
+  const metas = (await db.prepare("SELECT tbl, id FROM sync_meta WHERE owner = ? ORDER BY tbl, id").bind(owner).all<{ tbl: string; id: string }>()).results;
+  for (const m of metas) {
+    const r = await loadRow(db, m.tbl, m.id);
+    if (r && Object.hasOwn(out, m.tbl)) {
+      const { _v, ...row } = r.row;
+      out[m.tbl].push(row as Versioned);
+    }
+  }
+  return out;
+}
+
+// Children before parents, so foreign keys never block the delete.
+const DELETE_ORDER = ["activity_score", "dose_event", "safety_event", "session", "medicine", "consent", "elder"];
+
+/** Hard-delete every row this account owns, its bookkeeping and the account itself. */
+export async function deleteOwner(db: D1Database, owner: string): Promise<number> {
+  let n = 0;
+  for (const t of DELETE_ORDER) {
+    const ids = (await db.prepare("SELECT id FROM sync_meta WHERE tbl = ? AND owner = ?").bind(t, owner).all<{ id: string }>()).results;
+    for (const { id } of ids) { await db.prepare(`DELETE FROM ${t} WHERE id = ?`).bind(id).run(); n++; }
+  }
+  await db.batch([
+    db.prepare("DELETE FROM sync_meta WHERE owner = ?").bind(owner),
+    db.prepare("DELETE FROM dose_alert WHERE owner = ?").bind(owner),
+    db.prepare("DELETE FROM push_sub WHERE user_id = ?").bind(owner),
+    db.prepare("DELETE FROM app_user WHERE id = ?").bind(owner),
+  ]);
+  return n;
 }

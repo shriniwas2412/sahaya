@@ -10,6 +10,7 @@ import { localDay, IST_OFFSET_MIN } from "../core/doseTick.ts";
 import { waLink } from "../core/contacts.ts";
 import { ulid } from "../core/ids.ts";
 import { dialAction } from "../data/demo.ts";
+import { ConsentCard } from "./DataRights.tsx";
 import { describeSafety } from "./safetyText.ts";
 
 const FACES = ["😣", "🙁", "😐", "🙂", "😄"];
@@ -189,6 +190,7 @@ function Profile() {
           <input type="file" accept="image/*" class="sr-only" onChange={(ev) => pick(ev.currentTarget.files?.[0])} />
         </label>
       </section>
+      <ConsentCard />
     </>
   );
 }

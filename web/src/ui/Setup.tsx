@@ -70,7 +70,7 @@ export function Setup({ edit }: { edit: boolean }) {
     if (!edit) {
       await repo.save("consent", {
         id: ulid(), subject_type: "elder", subject_id: e.id, given_by: consent.given_by, method: consent.method,
-        scope_store: 1, scope_sync: consent.sync ? 1 : 0, scope_audio_cloud: consent.audio ? 1 : 0, scope_contact_share: 0, scope_research_aggregate: 0,
+        scope_store: 1, scope_sync: consent.sync ? 1 : 0, scope_audio_cloud: consent.audio ? 1 : 0, scope_llm_cloud: 0, scope_contact_share: 0, scope_research_aggregate: 0,
         language: lang, recorded_at: now,
       });
     }

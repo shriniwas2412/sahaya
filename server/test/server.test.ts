@@ -411,3 +411,49 @@ test("cron spends its push budget fairly: one account with many due doses cannot
   assert.ok(hits.filter((u) => u.endsWith("noisy@example.test")).length <= MAX_PUSHES_PER_OWNER);
   assert.ok(r.skipped > 0);
 });
+
+// --- data rights ---
+test("a deleted elder is stored without personal data, even if the client sent the old fields", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  await consented(e, cookie);
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow({ notes: "Likes bhajans" }) }] } });
+  const del = stamp(elderRow({ notes: "Likes bhajans" }), { ...elderRow({ notes: "Likes bhajans" }), deleted: true }, S(9));
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: del }] } });
+  const row = await e.DB.prepare("SELECT display_name, notes, preferences, deleted FROM elder WHERE id = 'e1'").first<Record<string, unknown>>();
+  assert.deepEqual({ ...row }, { display_name: "", notes: null, preferences: null, deleted: 1 });
+});
+
+test("GET /account/export returns the account and its rows, never the password hash", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  await consented(e, cookie);
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }] } });
+  const r = await call(e, "/account/export", { cookie });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.account.email, "caregiver1@example.test");
+  assert.equal(r.json.tables.elder[0].display_name, "Test Elder 1");
+  assert.equal(r.json.tables.consent.length, 1);
+  assert.doesNotMatch(JSON.stringify(r.json), /pbkdf2/);
+});
+
+test("POST /account/delete needs the confirm word, then hard-deletes the account, its rows and push subscriptions", async () => {
+  const e = env();
+  const cookie = await signedUp(e);
+  const other = await signedUp(e, "other@example.test");
+  await consented(e, cookie);
+  await consented(e, other, "eO");
+  await call(e, "/sync", { cookie, body: { rows: [{ table: "elder", row: elderRow() }, { table: "medicine", row: stamp(null, { id: "m1", elder_id: "e1", name: "Test Tablet A", times: ["08:00"] } as Versioned, S(2)) }] } });
+  await call(e, "/sync", { cookie: other, body: { rows: [{ table: "elder", row: elderRow({ id: "eO" }) }] } });
+  await call(e, "/push/subscribe", { cookie, body: sub("https://fcm.googleapis.com/fcm/send/x") });
+  assert.equal((await call(e, "/account/delete", { cookie, body: { confirm: "no" } })).status, 400);
+  const r = await call(e, "/account/delete", { cookie, body: { confirm: "DELETE" } });
+  assert.equal(r.status, 200);
+  const count = async (t: string) => (await e.DB.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first<{ n: number }>())!.n;
+  assert.equal(await count("medicine"), 0);
+  assert.equal(await count("push_sub"), 0);
+  assert.equal(await count("elder"), 1); // the other account's elder stays
+  assert.equal(await count("app_user"), 1);
+  assert.equal((await call(e, "/auth/me", { cookie })).status, 401);
+  assert.equal((await call(e, "/auth/login", { body: { email: "caregiver1@example.test", password: "correct horse 1" } })).status, 401);
+});

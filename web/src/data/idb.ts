@@ -16,6 +16,7 @@ export async function idbBackend(name = "sahaya"): Promise<Backend> {
     put: async (t, row) => { await db.put(t, row); },
     all: (t) => db.getAll(t),
     delete: (t, id) => db.delete(t, id),
+    clear: async () => { for (const t of [...TABLES, "meta" as const]) await db.clear(t); },
     getMeta: (k) => db.get("meta", k),
     setMeta: async (k, v) => { await db.put("meta", v, k); },
   };
