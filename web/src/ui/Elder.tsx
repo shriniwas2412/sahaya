@@ -249,7 +249,7 @@ function ElderScreen({ sessionId, distress, photo, speech, stt, llm, consent }: 
     <main class={`elder${data.demo ? " demo" : ""}`} lang={lang} onPointerDown={onAnyTap}>
       <div class="elder-top">
         {data.demo && (
-          <p class="exit-hint"><span class="demo-pill">{STRINGS[lang].demoBanner}</span> {c.exitHint}</p>
+          <p class="exit-hint"><span class="demo-pill">Demo / नमूना</span> {c.exitHint}</p>
         )}
         <button class={`corner${pressing ? " pressing" : ""}`} aria-label={c.holdHint}
           onPointerDown={(e) => { e.stopPropagation(); pressStart(); }} onPointerUp={pressEnd} onPointerLeave={pressEnd} onPointerCancel={pressEnd}

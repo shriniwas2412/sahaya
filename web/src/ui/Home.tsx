@@ -79,6 +79,8 @@ function Today() {
   const clock = (iso: string) => { const { h, m } = localClock(iso, IST_OFFSET_MIN); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
   const incidents = groupIncidents(data.safety).slice(0, 5);
   const sessions = [...data.sessions].sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? "")).filter((s) => s.mode === "companion").slice(0, 5);
+  const [convs, setConvs] = useState<Record<string, { who: "elder" | "sahaya"; text: string }[]>>({});
+  useEffect(() => { repo.backend.getMeta<typeof convs>("demo_conversations").then((c) => setConvs(c ?? {})); }, [repo]);
   const lastMood = sessions.find((s) => s.feedback_mood)?.feedback_mood ?? null;
   // Hindi uses the 24-hour clock, so a Hindi month never sits next to an English "am".
   const when = (iso: string) => new Date(iso).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: lang !== "hi" });
@@ -88,6 +90,13 @@ function Today() {
       <section class="card hero-card stack">
         <div class="row">
           <div class="grow">
+            {data.elders.length > 1 && (
+              <label class="resident-pick small">{t.residentLabel}{" "}
+                <select value={elder.id} onChange={async (ev) => { await repo.backend.setMeta("active_elder", ev.currentTarget.value); repo.changed(); }}>
+                  {data.elders.map((x) => <option value={x.id}>{x.display_name}{x.gds_stage ? ` · GDS ${x.gds_stage}` : ""}</option>)}
+                </select>
+              </label>
+            )}
             <h1>{elder.display_name}</h1>
             <p class="muted">{elder.gds_stage ? `GDS ${elder.gds_stage} · ${GDS[elder.gds_stage].title[lang]}` : t.notAssessed}</p>
           </div>
@@ -156,9 +165,19 @@ function Today() {
         <ul class="list">
           {!sessions.length && <li class="muted">{t.noSessions}</li>}
           {sessions.map((s) => (
-            <li class="row">
-              <span class="grow">{when(s.started_at ?? "")}</span>
-              <span>{s.feedback_mood ? `${FACES[s.feedback_mood - 1]} ${t.moods[s.feedback_mood - 1]}` : "—"}</span>
+            <li class="stack">
+              <div class="row">
+                <span class="grow">{when(s.started_at ?? "")}</span>
+                <span>{s.feedback_mood ? `${FACES[s.feedback_mood - 1]} ${t.moods[s.feedback_mood - 1]}` : "—"}</span>
+              </div>
+              {convs[s.id] && (
+                <details class="conv">
+                  <summary>{t.sampleConv}</summary>
+                  <ol class="conv-lines" lang={uiLang(elder.language)}>
+                    {convs[s.id].map((l) => <li class={l.who}><span class="small muted">{l.who === "elder" ? t.you : t.sahayaWho}:</span> {l.text}</li>)}
+                  </ol>
+                </details>
+              )}
             </li>
           ))}
         </ul>

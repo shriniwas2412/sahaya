@@ -24,27 +24,32 @@ test("loadDemo creates a valid, clearly labelled demo profile with no helpline",
   assert.ok(await verifyPin(DEMO_PIN, (await r.backend.getMeta<string>("pin_hash"))!));
 });
 
-test("demo has medicines, past feedback and activity history", async () => {
+test("demo has seven residents with medicines, feedback and activity history", async () => {
   const r = await open();
   await loadDemo(r, NOW, 1000);
-  assert.equal((await r.list("medicine")).length, 2);
-  const sessions = await r.list<{ mode: string; feedback_mood: number | null; started_at: string }>("session");
-  assert.equal(sessions.filter((s) => s.mode === "companion" && s.feedback_mood).length, 3);
-  assert.equal(sessions.filter((s) => s.mode === "memory_activity").length, 4);
+  assert.equal((await r.list("elder")).length, 7);
+  assert.equal((await r.list("medicine")).length, 8);
+  const sessions = await r.list<{ elder_id: string; mode: string; feedback_mood: number | null; started_at: string }>("session");
+  const shanti = sessions.filter((s) => s.elder_id === DEMO_ELDER_ID);
+  assert.ok(shanti.filter((s) => s.mode === "companion" && s.feedback_mood).length >= 3);
+  assert.equal(shanti.filter((s) => s.mode === "memory_activity").length, 3);
   assert.ok(sessions.every((s) => Date.parse(s.started_at) < NOW));
-  assert.equal((await r.list("activity_score")).length, 16);
 });
 
-test("demo activity history raises no made-up alarm flags", async () => {
+test("activity history: steady residents raise no flag; only the one synthetic decline example does", async () => {
   const r = await open();
   await loadDemo(r, NOW, 1000);
-  const sessions = await r.list<{ id: string; mode: string; started_at: string }>("session");
+  const sessions = await r.list<{ id: string; elder_id: string; mode: string; started_at: string }>("session");
   const scores = await r.list<{ session_id: string; task: string; score: number }>("activity_score");
-  const hist = sessions.filter((s) => s.mode === "memory_activity").map((s) => ({
-    date: s.started_at.slice(0, 10),
-    scores: Object.fromEntries(scores.filter((x) => x.session_id === s.id).map((x) => [x.task, x.score])),
-  }));
-  assert.deepEqual(flags(hist), []);
+  const flagged = new Set<string>();
+  for (const e of new Set(sessions.map((s) => s.elder_id))) {
+    const hist = sessions.filter((s) => s.elder_id === e && s.mode === "memory_activity").map((s) => ({
+      date: s.started_at.slice(0, 10),
+      scores: Object.fromEntries(scores.filter((x) => x.session_id === s.id).map((x) => [x.task, x.score])),
+    }));
+    if (flags(hist).length) flagged.add(e);
+  }
+  assert.deepEqual([...flagged], ["demo-e7"]);
 });
 
 test("clearDemo removes demo rows, rows made during the demo, the PIN, and leaves no tombstones", async () => {

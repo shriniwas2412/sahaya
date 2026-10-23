@@ -26,6 +26,8 @@ export interface ActivityRow { id: string; session_id: string; task: string; sco
 
 export interface Data {
   elder: ElderRow | null;
+  /** Every profile on this device (a care home may have several); `elder` is the selected one. */
+  elders: ElderRow[];
   meds: Medicine[];
   doses: DoseEvent[];
   sessions: SessionRow[];
@@ -52,7 +54,8 @@ export const useApp = () => useContext(AppCtx);
 
 async function load(repo: Repo): Promise<Data> {
   const elders = (await repo.list<ElderRow>("elder")).sort((a, b) => a.id.localeCompare(b.id));
-  const elder = elders[0] ?? null;
+  const active = await repo.backend.getMeta<string>("active_elder");
+  const elder = elders.find((e) => e.id === active) ?? elders[0] ?? null;
   const meds = elder ? (await repo.list<Medicine>("medicine")).filter((m) => m.elder_id === elder.id) : [];
   const medIds = new Set(meds.map((m) => m.id));
   const doses = (await repo.list<DoseEvent>("dose_event")).filter((d) => medIds.has(d.medicine_id));
@@ -62,7 +65,7 @@ async function load(repo: Repo): Promise<Data> {
   const activities = (await repo.list<ActivityRow>("activity_score")).filter((a) => sIds.has(a.session_id));
   const demo = (await repo.backend.getMeta<boolean>("demo")) === true;
   const consentVersion = (await repo.list<{ hlc?: string }>("consent")).map((c) => c.hlc ?? "").sort().join(",");
-  return { elder, meds, doses, sessions, safety, activities, demo, consentVersion };
+  return { elder, elders, meds, doses, sessions, safety, activities, demo, consentVersion };
 }
 
 export function App({ repo, initialLang }: { repo: Repo; initialLang: Lang }) {
