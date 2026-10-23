@@ -106,3 +106,12 @@ test("listeners hear about demo load and clear after the flags are set", async (
   await new Promise((res) => setTimeout(res, 0));
   assert.equal(seen.at(-1), false);
 });
+
+test("an interrupted demo load is not marked ready; a full load is", async () => {
+  const r = await open();
+  await r.backend.setMeta("demo_ready", false);
+  assert.notEqual(await r.backend.getMeta("demo_ready"), true);
+  await loadDemo(r, NOW, 1000);
+  assert.equal(await r.backend.getMeta("demo_ready"), true);
+  assert.ok(Object.keys((await r.backend.getMeta<Record<string, unknown>>("demo_conversations"))!).length >= 7);
+});

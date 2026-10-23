@@ -83,6 +83,7 @@ export function Tour({ onClose }: { onClose(): void }) {
   const n = t.tourSteps.length;
   useEffect(() => {
     repo.backend.setMeta("active_elder", TOUR_ELDER[i] ?? "demo-elder").then(() => repo.changed());
+    window.scrollTo({ top: 0, behavior: "smooth" });
     if (paused || i >= n - 1) return;
     const id = setTimeout(() => setI(i + 1), TOUR_STEP_MS);
     return () => clearTimeout(id);
@@ -96,7 +97,7 @@ export function Tour({ onClose }: { onClose(): void }) {
   return (
     <div class="tour" role="dialog" aria-modal="false" aria-labelledby="tour-h" onPointerEnter={() => setPaused(true)}>
       <p class="small muted">Demo / नमूना · {t.tourOf(i + 1, n)}</p>
-      <h2 id="tour-h" tabIndex={-1} ref={(el) => el?.focus()}>{title}</h2>
+      <h2 id="tour-h" tabIndex={-1} ref={(el) => el?.focus({ preventScroll: true })}>{title}</h2>
       <p>{body}</p>
       <div class="tour-bar" aria-hidden="true"><span style={{ width: `${((i + 1) / n) * 100}%` }} /></div>
       <div class="row">

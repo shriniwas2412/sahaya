@@ -27,13 +27,16 @@ export async function loadDemo(repo: Repo, now: number = Date.now(), pinIteratio
   await repo.backend.setMeta("demo", true);
   await repo.backend.setMeta("demo_cleared", false);
   const g = generateDemo(now);
+  await repo.backend.setMeta("demo_ready", false);
+  await repo.backend.setMeta("demo_conversations", g.conversations);
   for (const t of ["elder", "consent", "medicine", "dose_event", "session", "activity_score", "safety_event"] as const) {
     for (const row of g[t]) await repo.save(t, row as { id: string });
   }
-  await repo.backend.setMeta("demo_conversations", g.conversations);
   await repo.backend.setMeta("active_elder", DEMO_ELDER_ID);
   await repo.backend.setMeta("pin_hash", await hashPin(DEMO_PIN, pinIterations));
   for (const e of g.elder) await repo.backend.setMeta(`distress:${e.id}`, []);
+  // Last: an interrupted load (tab closed mid-way) is finished on the next open.
+  await repo.backend.setMeta("demo_ready", true);
   repo.changed();
 }
 

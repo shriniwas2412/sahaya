@@ -18,7 +18,7 @@ async function boot() {
   }
   const repo = await Repo.open(backend, ulid);
   // The demo database is filled on first open; its dates are relative to that day.
-  if (mode === "demo" && !(await repo.list("elder")).length) await loadDemo(repo);
+  if (mode === "demo" && (await backend.getMeta<boolean>("demo_ready")) !== true) await loadDemo(repo);
   const lang = ((await backend.getMeta<Lang>("ui_lang")) ?? "hi") as Lang;
   document.documentElement.lang = lang;
   render(<App repo={repo} initialLang={lang} />, document.getElementById("app")!);
