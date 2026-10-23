@@ -457,3 +457,31 @@ test("POST /account/delete needs the confirm word, then hard-deletes the account
   assert.equal((await call(e, "/auth/me", { cookie })).status, 401);
   assert.equal((await call(e, "/auth/login", { body: { email: "caregiver1@example.test", password: "correct horse 1" } })).status, 401);
 });
+
+// --- optional Sarvam voice proxy ---
+test("tts proxy: off without a key, needs a session, forwards with the server key only, validates input", async () => {
+  const off = env();
+  const c0 = await signedUp(off);
+  assert.equal((await call(off, "/tts/sarvam", { cookie: c0, body: { text: "नमस्ते", target_language_code: "hi-IN" } })).status, 404);
+  const e = env({ SARVAM_API_KEY: "server-test-key" });
+  assert.equal((await call(e, "/tts/sarvam", { body: { text: "नमस्ते", target_language_code: "hi-IN" } })).status, 401);
+  const cookie = await signedUp(e, "tts@example.test");
+  const seen: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init: { headers: Record<string, string>; body: string }) => {
+    seen.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ request_id: "x", audios: ["UklGRg=="] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  try {
+    assert.equal((await call(e, "/tts/sarvam", { cookie, body: { text: "", target_language_code: "hi-IN" } })).status, 400);
+    assert.equal((await call(e, "/tts/sarvam", { cookie, body: { text: "hi", target_language_code: "javascript:" } })).status, 400);
+    const r = await call(e, "/tts/sarvam", { cookie, body: { text: "नमस्ते ".repeat(200), target_language_code: "hi-IN", pace: 9 } });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json, { audios: ["UklGRg=="] });
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].url, "https://api.sarvam.ai/text-to-speech");
+    assert.equal(seen[0].headers["api-subscription-key"], "server-test-key");
+    assert.equal(String(seen[0].body.text).length, 500);
+    assert.equal(seen[0].body.pace, 0.9);
+  } finally { globalThis.fetch = real; }
+});

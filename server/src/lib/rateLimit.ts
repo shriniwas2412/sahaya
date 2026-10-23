@@ -10,6 +10,7 @@ export const LIMITS = {
   loginPerIp: { max: 30, windowMs: 15 * 60_000 },
   registerPerIp: { max: 5, windowMs: 60 * 60_000 },
   notifyPerUser: { max: 10, windowMs: 60 * 60_000 },
+  ttsPerUser: { max: 300, windowMs: 60 * 60_000 },
 } satisfies Record<string, Limit>;
 
 export async function limitKey(secret: string, kind: string, value: string): Promise<string> {

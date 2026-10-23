@@ -73,7 +73,7 @@ async function collect(it: AsyncIterable<string>): Promise<string[]> {
 // ---------- shared rules ----------
 
 test("speech rate is 0.85× for stages 4-7 and when not assessed", () => {
-  assert.deepEqual([1, 2, 3, 4, 5, 6, 7].map(s => speechRate(s as 1)), [1, 1, 1, 0.85, 0.85, 0.85, 0.85]);
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7].map(s => speechRate(s as 1)), [0.9, 0.9, 0.9, 0.85, 0.85, 0.85, 0.85]);
   assert.equal(speechRate(null), 0.85);
 });
 

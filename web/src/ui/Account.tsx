@@ -6,6 +6,7 @@ import { WebSpeechProvider, speechLocale, type SpeechCapabilities } from "../cor
 import { modelStatus, type LlmSettings } from "./llmSettings.ts";
 import { REMOTE_MODEL_DISCLOSURE } from "../core/companion/index.ts";
 import { DataRights } from "./DataRights.tsx";
+import { VoicePicker } from "./VoicePicker.tsx";
 
 export function Account() {
   const { repo, t, lang, data } = useApp();
@@ -15,7 +16,7 @@ export function Account() {
   const [msg, setMsg] = useState("");
   const [caps, setCaps] = useState<SpeechCapabilities | null>(null);
   const [llm, setLlm] = useState<LlmSettings>({ provider: "none", model: "" });
-  const [consent, setConsent] = useState<{ scope_llm_cloud?: 0 | 1 } | null>(null);
+  const [consent, setConsent] = useState<{ scope_llm_cloud?: 0 | 1; scope_audio_cloud: 0 | 1 } | null>(null);
 
   // Demo mode never contacts a server, not even to ask who is signed in.
   useEffect(() => { if (!data.demo) me().then(setUser).catch(() => setUser(null)); }, [data.demo]);
@@ -85,6 +86,7 @@ export function Account() {
         {caps?.note && <p class="small muted">{caps.note}</p>}
         <p class="small muted">{t.voiceFallback}</p>
       </section>
+      <VoicePicker consent={consent} />
       <section class="card stack">
         <h2>{lang === "hi" ? "बातचीत का मॉडल (ज़रूरी नहीं)" : "Conversation model (optional)"}</h2>
         <p class="small muted">{t.modelDefault}</p>

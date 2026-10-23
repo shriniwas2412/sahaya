@@ -1,0 +1,107 @@
+[
+  {
+    "id": "demo-elder-1",
+    "lang": "hi-IN",
+    "text": "नमस्ते शांति जी। आज आपका मन कैसा है?"
+  },
+  {
+    "id": "demo-elder-2",
+    "lang": "hi-IN",
+    "text": "वाह, गाने सुनना कितना अच्छा लगता है। कौन सा गाना था?"
+  },
+  {
+    "id": "demo-elder-3",
+    "lang": "hi-IN",
+    "text": "बहुत सुंदर। उनकी आवाज़ बहुत मीठी है।"
+  },
+  {
+    "id": "demo-e2-1",
+    "lang": "hi-IN",
+    "text": "राम राम रामकली जी। भजन सुनें?"
+  },
+  {
+    "id": "demo-e2-2",
+    "lang": "hi-IN",
+    "text": "अच्छा। आँगन में तुलसी है।"
+  },
+  {
+    "id": "demo-e2-3",
+    "lang": "hi-IN",
+    "text": "हाँ, गाय बहुत प्यारी है।"
+  },
+  {
+    "id": "demo-e3-1",
+    "lang": "hi-IN",
+    "text": "नमस्ते गोविंद जी। आज नाश्ते में पोहा था?"
+  },
+  {
+    "id": "demo-e3-2",
+    "lang": "hi-IN",
+    "text": "वाह, इंदौर वाला नाश्ता! आपको खेत में कौन सा काम सबसे अच्छा लगता था?"
+  },
+  {
+    "id": "demo-e3-3",
+    "lang": "hi-IN",
+    "text": "मेहनत का काम, और फ़सल देखकर खुशी भी।"
+  },
+  {
+    "id": "demo-e4-1",
+    "lang": "hi-IN",
+    "text": "सुशीला जी, मैं यहीं हूँ।"
+  },
+  {
+    "id": "demo-e4-2",
+    "lang": "hi-IN",
+    "text": "देखिए, फूल हैं। पीले फूल।"
+  },
+  {
+    "id": "demo-e4-3",
+    "lang": "hi-IN",
+    "text": "हाँ, सुंदर फूल।"
+  },
+  {
+    "id": "demo-e5-1",
+    "lang": "en-IN",
+    "text": "Good morning, Joseph. How are your roses doing?"
+  },
+  {
+    "id": "demo-e5-2",
+    "lang": "en-IN",
+    "text": "Lovely. Which train route did you enjoy most in your railway days?"
+  },
+  {
+    "id": "demo-e5-3",
+    "lang": "en-IN",
+    "text": "That sounds beautiful, with all those hills and tunnels."
+  },
+  {
+    "id": "demo-e6-1",
+    "lang": "mr-IN",
+    "text": "नमस्कार विठाबाई. आज अभंग ऐकूया का?"
+  },
+  {
+    "id": "demo-e6-2",
+    "lang": "mr-IN",
+    "text": "छान. वारीची आठवण येते का?"
+  },
+  {
+    "id": "demo-e6-3",
+    "lang": "mr-IN",
+    "text": "किती सुंदर आठवण आहे."
+  },
+  {
+    "id": "demo-e7-1",
+    "lang": "mr-IN",
+    "text": "नमस्कार प्रभाकरराव. चहा घेऊया?"
+  },
+  {
+    "id": "demo-e7-2",
+    "lang": "mr-IN",
+    "text": "बैलगाडीतून जायचात ना? छान."
+  },
+  {
+    "id": "demo-e7-3",
+    "lang": "mr-IN",
+    "text": "गरम चहा आणि गप्पा. छान वाटतं."
+  }
+]

@@ -5,6 +5,8 @@ VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:
 APP_ORIGIN=http://localhost:5173
 INSECURE_COOKIE=1
+# Optional: natural Sarvam voice through the server (your own key).
+SARVAM_API_KEY=
 # Local demo login (node scripts/seed-demo.ts). Example values; change them.
 DEMO_EMAIL=demo@example.invalid
 DEMO_PASSWORD=change-me-demo-only

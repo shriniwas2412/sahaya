@@ -65,9 +65,9 @@ export function audioCloudAllowed(consent: AudioConsent | null | undefined): boo
   return consent?.scope_audio_cloud === true || consent?.scope_audio_cloud === 1;
 }
 
-/** Slower speech for stages 4–7 (and when the stage is not assessed). */
+/** Calm speech: 0.9 for stages 1–3, slower (0.85) for 4–7 and when not assessed. */
 export function speechRate(stage: StageLike): number {
-  return stage != null && stage <= 3 ? 1 : 0.85;
+  return stage != null && stage <= 3 ? 0.9 : 0.85;
 }
 
 /** Voice locale for a profile language/dialect. Hindi dialects use hi-IN voices. */

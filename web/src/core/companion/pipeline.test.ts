@@ -168,7 +168,7 @@ test("default provider is scripted and offline", async () => {
     assert.equal(r.source, "scripted");
     assert.deepEqual(steps, ["safety", "trigger", "prompt", "scripted", "guard"]);
     assert.equal(r.lang, "hi");
-    assert.equal(r.rate, 1);
+    assert.equal(r.rate, 0.9);
   } finally { globalThis.fetch = orig; }
   assert.equal(called, false);
 });

@@ -27,6 +27,8 @@ export interface Env {
   APP_ORIGIN?: string;
   /** Local timezone offset in minutes for medicine times. Default 330 (IST). */
   TZ_OFFSET_MIN?: string;
+  /** Optional Sarvam AI key for the /tts/sarvam proxy (a secret; never in the repo). */
+  SARVAM_API_KEY?: string;
   /** "1" to drop the Secure flag on the cookie for http://localhost. */
   INSECURE_COOKIE?: string;
 }

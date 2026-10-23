@@ -7,6 +7,7 @@
 //   GET  /push/key       -> VAPID public key (or null)
 //   POST /push/subscribe <PushSubscription JSON>
 //   POST /notify         {elder_id, text}              -> push to the caregiver's devices
+//   POST /tts/sarvam     {text, target_language_code, …} -> Sarvam TTS with the server's key (optional)
 
 import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
@@ -173,6 +174,29 @@ export function createApp() {
     if (!meta || meta.owner !== owner) return c.json({ error: "not found" }, 404);
     const sent = await pushToUser(c.env, owner, { title: "Sahaya", body: String(b.text ?? "").slice(0, 300), tag: `help:${b.elder_id}`, urgent: true });
     return c.json({ sent });
+  });
+
+  // Optional natural voice with a key held by the server (SARVAM_API_KEY), so phones
+  // never see it. Signed-in users only, rate-limited, short text, fixed upstream URL.
+  app.post("/tts/sarvam", async (c) => {
+    const key = c.env.SARVAM_API_KEY;
+    if (!key) return c.json({ error: "not_configured" }, 404);
+    const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+    const text = typeof b.text === "string" ? b.text.slice(0, 500) : "";
+    const lang = typeof b.target_language_code === "string" && /^[a-z]{2}-IN$/.test(b.target_language_code) ? b.target_language_code : "";
+    if (!text || !lang) return c.json({ error: "bad_request" }, 400);
+    const k = await limitKey(c.env.JWT_SECRET, "tts-user", c.get("user").sub);
+    if (await overLimit(c.env.DB, k, LIMITS.ttsPerUser)) return tooMany(c);
+    await record(c.env.DB, k);
+    const pace = typeof b.pace === "number" && b.pace >= 0.5 && b.pace <= 2 ? b.pace : 0.9;
+    const speaker = typeof b.speaker === "string" && /^[a-z]{2,20}$/.test(b.speaker) ? b.speaker : "anushka";
+    const up = await fetch("https://api.sarvam.ai/text-to-speech", {
+      method: "POST", headers: { "content-type": "application/json", "api-subscription-key": key },
+      body: JSON.stringify({ text, target_language_code: lang, speaker, model: "bulbul:v2", pace, speech_sample_rate: 22050 }),
+    }).catch(() => null);
+    if (!up || !up.ok) return c.json({ error: "upstream", status: up?.status ?? 0 }, 502);
+    const body = (await up.json().catch(() => ({}))) as { audios?: string[] };
+    return c.json({ audios: Array.isArray(body.audios) ? body.audios.slice(0, 1) : [] });
   });
 
   return app;

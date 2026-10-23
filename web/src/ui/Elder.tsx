@@ -13,7 +13,7 @@ import { toProfile, uiLang } from "../core/profile.ts";
 import { currentReminder, step, doseTimeLabel, DEFAULT_ESCALATE_MIN } from "../core/doses.ts";
 import { verifyPin, afterAttempt, isLocked, LONG_PRESS_MS, type Tries } from "../core/pin.ts";
 import { ulid } from "../core/ids.ts";
-import { speak, stopSpeaking } from "./voice.ts";
+import { speak, stopSpeaking, configureVoice, type VoiceSettings } from "./voice.ts";
 import { notifyCaregiver } from "./api.ts";
 import { llmFromSettings, type LlmSettings } from "./llmSettings.ts";
 import { dialAction } from "../data/demo.ts";
@@ -75,6 +75,7 @@ export function Elder({ sessionId }: { sessionId: string }) {
       const speech = new WebSpeechProvider({ consent: consent ?? null });
       const caps = await speech.capabilities(speechLocale(elder.language)).catch(() => ({ stt: false }));
       const llm = llmFromSettings(await repo.backend.getMeta<LlmSettings>("llm"));
+      configureVoice(await repo.backend.getMeta<VoiceSettings>("voice"), consent ?? null);
       setReady({ distress, photo, speech, stt: caps.stt, llm, consent: consent ?? null });
     })();
   }, [repo, elder.id]);
