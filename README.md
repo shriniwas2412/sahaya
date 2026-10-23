@@ -194,7 +194,7 @@ This creates (or resets) one caregiver account to sign in with on the Account ta
 
 | What | Value | Source |
 |---|---|---|
-| Unit tests, web (incl. evaluation checks) | 300 passing | `cd web && npm test` |
+| Unit tests, web (incl. evaluation checks) | 301 passing | `cd web && npm test` |
 | Unit tests, server | 38 passing | `cd server && npm test` |
 | Demo guard | demo load/clear, no sync, no dial (masked link preview only) | `web/src/data/demo.test.ts` |
 | Dose merge | a "taken" from a phone with a slow clock still beats the server's later "due"; "escalated" beats a fast phone's "missed" | `web/src/core/merge.test.ts` |
