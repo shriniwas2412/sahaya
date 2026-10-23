@@ -1,0 +1,452 @@
+{
+  "generated": "by eval/run.ts",
+  "data": "synthetic, hand-written; not field data",
+  "safety": {
+    "size": 123,
+    "counts": {
+      "emergency": 49,
+      "check": 44,
+      "none": 30
+    },
+    "exactAccuracy": 0.8,
+    "emergency": {
+      "precision": 0.93,
+      "recall": 0.84,
+      "f1": 0.88,
+      "support": 49,
+      "tp": 41,
+      "fp": 3,
+      "fn": 8
+    },
+    "check": {
+      "precision": 0.97,
+      "recall": 0.7,
+      "f1": 0.82,
+      "support": 44,
+      "tp": 31,
+      "fp": 1,
+      "fn": 13
+    },
+    "anyAlert": {
+      "precision": 0.96,
+      "recall": 0.78,
+      "f1": 0.86,
+      "support": 93,
+      "tp": 73,
+      "fp": 3,
+      "fn": 20
+    },
+    "confusion": {
+      "emergency": {
+        "emergency": 41,
+        "check": 1,
+        "none": 7
+      },
+      "check": {
+        "check": 31,
+        "none": 13
+      },
+      "none": {
+        "none": 27,
+        "emergency": 3
+      }
+    },
+    "byTag": {
+      "plain": {
+        "n": 81,
+        "correct": 74,
+        "accuracy": 0.91
+      },
+      "indirect": {
+        "n": 6,
+        "correct": 0,
+        "accuracy": 0
+      },
+      "misspelling": {
+        "n": 8,
+        "correct": 3,
+        "accuracy": 0.38
+      },
+      "negation": {
+        "n": 11,
+        "correct": 11,
+        "accuracy": 1
+      },
+      "harmless-word": {
+        "n": 4,
+        "correct": 1,
+        "accuracy": 0.25
+      },
+      "code-mix": {
+        "n": 13,
+        "correct": 10,
+        "accuracy": 0.77
+      }
+    },
+    "byLang": {
+      "en": {
+        "n": 30,
+        "correct": 24,
+        "accuracy": 0.8
+      },
+      "hi": {
+        "n": 27,
+        "correct": 23,
+        "accuracy": 0.85
+      },
+      "hi-rom": {
+        "n": 29,
+        "correct": 26,
+        "accuracy": 0.9
+      },
+      "hinglish": {
+        "n": 15,
+        "correct": 11,
+        "accuracy": 0.73
+      },
+      "mr": {
+        "n": 11,
+        "correct": 8,
+        "accuracy": 0.73
+      },
+      "gu": {
+        "n": 11,
+        "correct": 7,
+        "accuracy": 0.64
+      }
+    },
+    "falseNegatives": [
+      {
+        "text": "Hlep",
+        "lang": "en",
+        "label": "emergency",
+        "tag": "misspelling"
+      },
+      {
+        "text": "My back is aching",
+        "lang": "en",
+        "label": "check",
+        "tag": "indirect"
+      },
+      {
+        "text": "I feel lonely and sad",
+        "lang": "en",
+        "label": "check",
+        "tag": "indirect"
+      },
+      {
+        "text": "Feeling a bit dizy",
+        "lang": "en",
+        "label": "check",
+        "tag": "misspelling"
+      },
+      {
+        "text": "बेहोशी जैसी लग रही है",
+        "lang": "hi",
+        "label": "emergency",
+        "tag": "indirect"
+      },
+      {
+        "text": "मन बहुत उदास है",
+        "lang": "hi",
+        "label": "check",
+        "tag": "indirect"
+      },
+      {
+        "text": "पेट दुख रहा है",
+        "lang": "hi",
+        "label": "check",
+        "tag": "indirect"
+      },
+      {
+        "text": "madadd",
+        "lang": "hi-rom",
+        "label": "emergency",
+        "tag": "misspelling"
+      },
+      {
+        "text": "dardd hai kamar mein",
+        "lang": "hi-rom",
+        "label": "check",
+        "tag": "misspelling"
+      },
+      {
+        "text": "chaker aa rahe",
+        "lang": "hi-rom",
+        "label": "check",
+        "tag": "misspelling"
+      },
+      {
+        "text": "main fall ho gayi bathroom mein",
+        "lang": "hinglish",
+        "label": "emergency",
+        "tag": "code-mix"
+      },
+      {
+        "text": "breathing problem ho rahi hai",
+        "lang": "hinglish",
+        "label": "emergency",
+        "tag": "code-mix"
+      },
+      {
+        "text": "home jana hai mujhe",
+        "lang": "hinglish",
+        "label": "check",
+        "tag": "code-mix"
+      },
+      {
+        "text": "श्वास घेता येत नाही",
+        "lang": "mr",
+        "label": "emergency",
+        "tag": "plain"
+      },
+      {
+        "text": "मला भीती वाटते",
+        "lang": "mr",
+        "label": "check",
+        "tag": "plain"
+      },
+      {
+        "text": "मला घरी जायचंय",
+        "lang": "mr",
+        "label": "check",
+        "tag": "plain"
+      },
+      {
+        "text": "શ્વાસ નથી આવતો",
+        "lang": "gu",
+        "label": "emergency",
+        "tag": "plain"
+      },
+      {
+        "text": "મને ડર લાગે છે",
+        "lang": "gu",
+        "label": "check",
+        "tag": "plain"
+      },
+      {
+        "text": "ચક્કર આવે છે",
+        "lang": "gu",
+        "label": "check",
+        "tag": "plain"
+      },
+      {
+        "text": "મારે ઘરે જવું છે",
+        "lang": "gu",
+        "label": "check",
+        "tag": "plain"
+      }
+    ],
+    "underTriaged": [
+      {
+        "text": "My chest hurts so much",
+        "lang": "en",
+        "tag": "indirect"
+      }
+    ],
+    "falsePositives": [
+      {
+        "text": "Can you help me remember the song?",
+        "lang": "en",
+        "pred": "emergency",
+        "tag": "harmless-word"
+      },
+      {
+        "text": "पत्ते गिर गए पेड़ से",
+        "lang": "hi",
+        "pred": "emergency",
+        "tag": "harmless-word"
+      },
+      {
+        "text": "help karo gaana dhoondhne mein",
+        "lang": "hinglish",
+        "pred": "emergency",
+        "tag": "harmless-word"
+      }
+    ]
+  },
+  "stages": {
+    "hi-1": {
+      "stage": 1,
+      "lang": "hi",
+      "maxSentencesAllowed": 3,
+      "turns": 13,
+      "wordsPerSentence": 6.56,
+      "maxSentences": 3,
+      "questionsPerTurn": 0.69,
+      "maxQuestions": 1,
+      "withinLimits": 1,
+      "banned": 0
+    },
+    "hi-2": {
+      "stage": 2,
+      "lang": "hi",
+      "maxSentencesAllowed": 3,
+      "turns": 13,
+      "wordsPerSentence": 6.56,
+      "maxSentences": 3,
+      "questionsPerTurn": 0.69,
+      "maxQuestions": 1,
+      "withinLimits": 1,
+      "banned": 0
+    },
+    "hi-3": {
+      "stage": 3,
+      "lang": "hi",
+      "maxSentencesAllowed": 3,
+      "turns": 13,
+      "wordsPerSentence": 6.56,
+      "maxSentences": 3,
+      "questionsPerTurn": 0.69,
+      "maxQuestions": 1,
+      "withinLimits": 1,
+      "banned": 0
+    },
+    "hi-4": {
+      "stage": 4,
+      "lang": "hi",
+      "maxSentencesAllowed": 2,
+      "turns": 13,
+      "wordsPerSentence": 6.04,
+      "maxSentences": 3,
+      "questionsPerTurn": 0.77,
+      "maxQuestions": 1,
+      "withinLimits": 0.92,
+      "banned": 0
+    },
+    "hi-5": {
+      "stage": 5,
+      "lang": "hi",
+      "maxSentencesAllowed": 2,
+      "turns": 13,
+      "wordsPerSentence": 6.04,
+      "maxSentences": 3,
+      "questionsPerTurn": 0.77,
+      "maxQuestions": 1,
+      "withinLimits": 0.92,
+      "banned": 0
+    },
+    "hi-6": {
+      "stage": 6,
+      "lang": "hi",
+      "maxSentencesAllowed": 1,
+      "turns": 13,
+      "wordsPerSentence": 6.36,
+      "maxSentences": 2,
+      "questionsPerTurn": 0,
+      "maxQuestions": 0,
+      "withinLimits": 0.92,
+      "banned": 0
+    },
+    "hi-7": {
+      "stage": 7,
+      "lang": "hi",
+      "maxSentencesAllowed": 1,
+      "turns": 13,
+      "wordsPerSentence": 6.36,
+      "maxSentences": 2,
+      "questionsPerTurn": 0,
+      "maxQuestions": 0,
+      "withinLimits": 0.92,
+      "banned": 0
+    },
+    "en-1": {
+      "stage": 1,
+      "lang": "en",
+      "maxSentencesAllowed": 3,
+      "turns": 13,
+      "wordsPerSentence": 5.85,
+      "maxSentences": 3,
+      "questionsPerTurn": 0.69,
+      "maxQuestions": 1,
+      "withinLimits": 1,
+      "banned": 0
+    },
+    "en-2": {
+      "stage": 2,
+      "lang": "en",
+      "maxSentencesAllowed": 3,
+      "turns": 13,
+      "wordsPerSentence": 5.85,
+      "maxSentences": 3,
+      "questionsPerTurn": 0.69,
+      "maxQuestions": 1,
+      "withinLimits": 1,
+      "banned": 0
+    },
+    "en-3": {
+      "stage": 3,
+      "lang": "en",
+      "maxSentencesAllowed": 3,
+      "turns": 13,
+      "wordsPerSentence": 5.85,
+      "maxSentences": 3,
+      "questionsPerTurn": 0.69,
+      "maxQuestions": 1,
+      "withinLimits": 1,
+      "banned": 0
+    },
+    "en-4": {
+      "stage": 4,
+      "lang": "en",
+      "maxSentencesAllowed": 2,
+      "turns": 13,
+      "wordsPerSentence": 5.58,
+      "maxSentences": 2,
+      "questionsPerTurn": 0.77,
+      "maxQuestions": 1,
+      "withinLimits": 1,
+      "banned": 0
+    },
+    "en-5": {
+      "stage": 5,
+      "lang": "en",
+      "maxSentencesAllowed": 2,
+      "turns": 13,
+      "wordsPerSentence": 5.58,
+      "maxSentences": 2,
+      "questionsPerTurn": 0.77,
+      "maxQuestions": 1,
+      "withinLimits": 1,
+      "banned": 0
+    },
+    "en-6": {
+      "stage": 6,
+      "lang": "en",
+      "maxSentencesAllowed": 1,
+      "turns": 13,
+      "wordsPerSentence": 5.36,
+      "maxSentences": 2,
+      "questionsPerTurn": 0,
+      "maxQuestions": 0,
+      "withinLimits": 0.92,
+      "banned": 0
+    },
+    "en-7": {
+      "stage": 7,
+      "lang": "en",
+      "maxSentencesAllowed": 1,
+      "turns": 13,
+      "wordsPerSentence": 5.36,
+      "maxSentences": 2,
+      "questionsPerTurn": 0,
+      "maxQuestions": 0,
+      "withinLimits": 0.92,
+      "banned": 0
+    }
+  },
+  "latency": {
+    "runs": 400,
+    "node": "v25.5.0",
+    "platform": "darwin-x64",
+    "note": "Measured in Node on a laptop with the offline scripted companion; not a phone, no network model.",
+    "turnMs": {
+      "median": 0.104,
+      "p95": 0.139
+    },
+    "safetyScreenMs": {
+      "median": 0.097,
+      "p95": 0.123
+    }
+  }
+}
